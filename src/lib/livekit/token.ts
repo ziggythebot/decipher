@@ -15,6 +15,7 @@ export function createLiveKitToken(opts: {
   identity: string;
   room: string;
   name?: string;
+  metadata?: string;
   ttlSeconds?: number;
 }): string {
   const now = Math.floor(Date.now() / 1000);
@@ -32,6 +33,7 @@ export function createLiveKitToken(opts: {
     nbf: now,
     exp,
     name: opts.name ?? opts.identity,
+    metadata: opts.metadata,
     video: {
       room: opts.room,
       roomJoin: true,

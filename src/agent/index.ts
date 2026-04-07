@@ -17,8 +17,7 @@ export default defineAgent({
   entry: async (ctx) => {
     await ctx.connect();
 
-    // User context passed via room metadata
-    const metadata = ctx.room.metadata ? JSON.parse(ctx.room.metadata) : {};
+    const metadata = getLearnerMetadata(ctx);
     const {
       userName = "learner",
       knownWords = [],
@@ -80,6 +79,31 @@ export default defineAgent({
     await session.waitForDisconnection();
   },
 });
+
+function parseMetadata(raw: string | undefined): Record<string, unknown> {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function getLearnerMetadata(ctx: { room: { metadata?: string; remoteParticipants?: unknown } }): Record<string, unknown> {
+  const roomMetadata = parseMetadata(ctx.room.metadata);
+  if (Object.keys(roomMetadata).length > 0) return roomMetadata;
+
+  const remoteParticipants = Array.from(
+    ((ctx.room.remoteParticipants as Map<string, { metadata?: string }> | undefined)?.values() ?? [])
+  );
+  for (const participant of remoteParticipants) {
+    const participantMetadata = parseMetadata(participant.metadata);
+    if (Object.keys(participantMetadata).length > 0) return participantMetadata;
+  }
+
+  return {};
+}
 
 function buildSystemPrompt(opts: {
   userName: string;

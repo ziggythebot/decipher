@@ -29,10 +29,20 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unknown scenario" }, { status: 400 });
   }
 
-  const user = await db.user.findUnique({ where: { clerkId } });
+  const user = await db.user.findUnique({
+    where: { clerkId },
+    include: { grammarProfile: true },
+  });
   if (!user) {
     return NextResponse.json({ error: "User not found" }, { status: 404 });
   }
+
+  const knownVocab = await db.userVocabulary.findMany({
+    where: { userId: user.id, state: { gt: 0 } },
+    include: { word: { select: { word: true } } },
+    orderBy: { word: { frequencyRank: "asc" } },
+    take: 200,
+  });
 
   const session = await db.conversationSession.create({
     data: {
@@ -57,12 +67,35 @@ export async function POST(request: Request) {
   if (livekitUrl && livekitApiKey && livekitApiSecret) {
     const roomName = `decipher-${user.id}-${session.id}`;
     const identity = `learner-${user.id}`;
+    const languageName =
+      user.targetLanguage === "fr"
+        ? "French"
+        : user.targetLanguage === "es"
+          ? "Spanish"
+          : user.targetLanguage === "pt"
+            ? "Portuguese"
+            : user.targetLanguage === "de"
+              ? "German"
+              : user.targetLanguage;
+    const participantMetadata = JSON.stringify({
+      userName: user.email ? user.email.split("@")[0] : identity,
+      knownWords: knownVocab.map((entry) => entry.word.word),
+      grammarProfile: user.grammarProfile?.patternScores ?? {},
+      goalType: user.goalType,
+      sessionMode: mode,
+      scenarioType: mode === "guided" ? scenarioType : "freeform",
+      languageName,
+      targetLanguage: user.targetLanguage,
+      sessionId: session.id,
+    });
+
     const token = createLiveKitToken({
       apiKey: livekitApiKey,
       apiSecret: livekitApiSecret,
       identity,
       room: roomName,
       name: identity,
+      metadata: participantMetadata,
       ttlSeconds: 60 * 30,
     });
 
