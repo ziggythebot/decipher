@@ -7,7 +7,7 @@ import { getOrCreateSessionUser } from "@/lib/session-user";
 export default async function ProgressPage() {
   const user = await getOrCreateSessionUser();
 
-  const [wordsLearned, sessions, knownVocab, recentSessions] = await Promise.all([
+  const [wordsLearned, sessions, knownVocab, recentSessions, streakEntries] = await Promise.all([
     db.userVocabulary.count({ where: { userId: user.id, state: { gt: 0 } } }),
     db.conversationSession.count({ where: { userId: user.id } }),
     db.userVocabulary.findMany({
@@ -30,6 +30,10 @@ export default async function ProgressPage() {
         errorsLogged: true,
         transcript: true,
       },
+    }),
+    db.streakEntry.findMany({
+      where: { userId: user.id, date: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } },
+      orderBy: { date: "asc" },
     }),
   ]);
 
@@ -121,6 +125,18 @@ export default async function ProgressPage() {
           <Stat value={String(wordsLearned)} label="Words learned" />
           <Stat value={String(sessions)} label="Conversations" />
         </div>
+
+        <section className="mt-8">
+          <h2 className="text-xl font-bold">Streak</h2>
+          <div className="mt-3 rounded-xl border border-zinc-800 bg-zinc-900 p-4">
+            <div className="flex items-center gap-3 mb-4">
+              <span className="text-2xl font-black">{user.streakDays}</span>
+              <span className="text-sm text-zinc-400">{user.streakDays === 1 ? "day" : "days"} current streak</span>
+            </div>
+            <StreakGrid entries={streakEntries.map((e) => e.date)} />
+            <p className="mt-2 text-xs text-zinc-600">Last 30 days</p>
+          </div>
+        </section>
 
         <section className="mt-8">
           <h2 className="text-xl font-bold">Achievements</h2>
@@ -238,6 +254,36 @@ function TrendChip({ label, value }: { label: string; value: number }) {
     <div className="rounded-lg border border-zinc-700 bg-zinc-800 p-2 text-center">
       <p className="text-sm font-bold text-zinc-200">{value}</p>
       <p className="text-[11px] text-zinc-500">{label}</p>
+    </div>
+  );
+}
+
+function StreakGrid({ entries }: { entries: Date[] }) {
+  // Build a set of date strings (YYYY-MM-DD) that have activity
+  const activeDays = new Set(
+    entries.map((d) => {
+      const date = new Date(d);
+      return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+    })
+  );
+
+  // Build the last 30 days starting from 29 days ago to today
+  const days: { key: string; active: boolean }[] = [];
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    days.push({ key, active: activeDays.has(key) });
+  }
+
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {days.map(({ key, active }) => (
+        <div
+          key={key}
+          title={key}
+          className={`h-4 w-4 rounded-sm ${active ? "bg-emerald-500" : "bg-zinc-700"}`}
+        />
+      ))}
     </div>
   );
 }
