@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { FRENCH_DECONSTRUCTION_DOZEN } from "@/data/deconstruction-dozen";
+import { CompleteButton } from "./CompleteButton";
 
 export default async function DeconstructPage() {
   const { userId } = await auth();
@@ -32,14 +33,10 @@ export default async function DeconstructPage() {
         <h1 className="text-3xl font-black">Deconstruction Dozen</h1>
         <p className="mt-2 max-w-2xl text-zinc-400">
           12 high-leverage sentences that expose French sentence structure quickly.
-          This page currently presents the full lesson content while persistence actions
-          are being implemented.
+          Mark the lesson complete to persist your grammar milestone and claim XP.
         </p>
 
-        <div className="mt-6 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-200">
-          Lesson save/checkoff controls are coming next. You can review the content now,
-          then continue to vocab from the dashboard.
-        </div>
+        <CompleteButton completed={completed} />
 
         <div className="mt-8 space-y-4">
           {FRENCH_DECONSTRUCTION_DOZEN.map((item) => (
