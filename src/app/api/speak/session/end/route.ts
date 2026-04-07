@@ -4,6 +4,11 @@ import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { ACHIEVEMENTS } from "@/lib/achievements";
 import { XP, levelFromTotalXp } from "@/lib/xp";
+import {
+  countUserTurns,
+  extractCorrectedForms,
+  summarizeErrorCategories,
+} from "@/lib/speak/analytics";
 
 type Body = {
   sessionId?: string;
@@ -19,21 +24,19 @@ function extractWords(text: string): string[] {
     .filter((w) => w.length >= 2);
 }
 
-function transcriptStats(transcript: string | null): { userTurns: number; uniqueWords: Set<string> } {
+function transcriptWords(transcript: string | null): Set<string> {
   const lines = (transcript ?? "")
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
 
-  let userTurns = 0;
   const words = new Set<string>();
 
   for (const line of lines) {
-    if (line.includes("User:")) userTurns += 1;
     for (const word of extractWords(line)) words.add(word);
   }
 
-  return { userTurns, uniqueWords: words };
+  return words;
 }
 
 function startOfUtcDay(date: Date): Date {
@@ -129,18 +132,34 @@ export async function POST(request: Request) {
   });
   const knownWordSet = new Set(knownVocab.map((entry) => entry.word.word.toLowerCase()));
   const transcript = session.transcript ?? "";
-  const { userTurns, uniqueWords } = transcriptStats(transcript);
+  const userTurns = countUserTurns(transcript);
+  const uniqueWords = transcriptWords(transcript);
   const inferredUnknownWords = [...uniqueWords].filter((word) => !knownWordSet.has(word) && word.length >= 3);
   const inferredNewWordsCount = inferredUnknownWords.length;
   const effectiveNewWordsCount = Math.max(newWordsCount, inferredNewWordsCount);
 
   const existingErrors = Array.isArray(session.errorsLogged) ? session.errorsLogged : [];
   const errorCount = existingErrors.length;
+  const categoryCounts = summarizeErrorCategories({
+    transcript,
+    errorsLogged: existingErrors,
+    inferredUnknownWordCount: inferredNewWordsCount,
+  });
+  const correctedForms = extractCorrectedForms(transcript);
   const inferredAccuracy =
     accuracyPct ??
     (userTurns > 0
       ? Math.max(0, Math.min(100, Math.round(((userTurns - Math.min(errorCount, userTurns)) / userTurns) * 100)))
       : null);
+  const analysisSummary = {
+    type: "analysis_summary",
+    ts: new Date().toISOString(),
+    categories: categoryCounts,
+    correctedForms,
+    inferredUnknownWords: inferredUnknownWords.slice(0, 30),
+    userTurns,
+  };
+  const nextErrorsForSave = [...existingErrors, analysisSummary];
 
   let streakDays = user.streakDays;
   const now = new Date();
@@ -173,6 +192,7 @@ export async function POST(request: Request) {
         xpEarned: xpGain,
         newWordsCount: effectiveNewWordsCount,
         accuracyPct: inferredAccuracy,
+        errorsLogged: nextErrorsForSave,
       },
     });
 
@@ -216,6 +236,8 @@ export async function POST(request: Request) {
       inferredNewWordsCount: effectiveNewWordsCount,
       inferredAccuracy,
       errorCount,
+      categoryCounts,
+      correctedForms,
     };
   });
 
