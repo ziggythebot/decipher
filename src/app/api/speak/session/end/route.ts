@@ -12,6 +12,30 @@ type Body = {
   accuracyPct?: number;
 };
 
+function extractWords(text: string): string[] {
+  return text
+    .toLowerCase()
+    .split(/[^a-zA-Z\u00C0-\u017F]+/g)
+    .filter((w) => w.length >= 2);
+}
+
+function transcriptStats(transcript: string | null): { userTurns: number; uniqueWords: Set<string> } {
+  const lines = (transcript ?? "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  let userTurns = 0;
+  const words = new Set<string>();
+
+  for (const line of lines) {
+    if (line.includes("User:")) userTurns += 1;
+    for (const word of extractWords(line)) words.add(word);
+  }
+
+  return { userTurns, uniqueWords: words };
+}
+
 function startOfUtcDay(date: Date): Date {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
 }
@@ -98,6 +122,26 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, alreadyEnded: true, sessionId: session.id });
   }
 
+  const knownVocab = await db.userVocabulary.findMany({
+    where: { userId: user.id, state: { gt: 0 } },
+    include: { word: { select: { word: true } } },
+    take: 2000,
+  });
+  const knownWordSet = new Set(knownVocab.map((entry) => entry.word.word.toLowerCase()));
+  const transcript = session.transcript ?? "";
+  const { userTurns, uniqueWords } = transcriptStats(transcript);
+  const inferredUnknownWords = [...uniqueWords].filter((word) => !knownWordSet.has(word) && word.length >= 3);
+  const inferredNewWordsCount = inferredUnknownWords.length;
+  const effectiveNewWordsCount = Math.max(newWordsCount, inferredNewWordsCount);
+
+  const existingErrors = Array.isArray(session.errorsLogged) ? session.errorsLogged : [];
+  const errorCount = existingErrors.length;
+  const inferredAccuracy =
+    accuracyPct ??
+    (userTurns > 0
+      ? Math.max(0, Math.min(100, Math.round(((userTurns - Math.min(errorCount, userTurns)) / userTurns) * 100)))
+      : null);
+
   let streakDays = user.streakDays;
   const now = new Date();
   if (!user.lastActiveAt) {
@@ -115,6 +159,7 @@ export async function POST(request: Request) {
 
   const minutes = Math.floor(durationSec / 60);
   let xpGain = XP.CONVO_SESSION + minutes * XP.CONVO_MINUTE + newWordsCount * XP.CONVO_NEW_WORD_USED;
+  xpGain = XP.CONVO_SESSION + minutes * XP.CONVO_MINUTE + effectiveNewWordsCount * XP.CONVO_NEW_WORD_USED;
 
   if (streakDays === 3) xpGain += XP.STREAK_3_DAYS;
   if (streakDays === 7) xpGain += XP.STREAK_7_DAYS;
@@ -126,8 +171,8 @@ export async function POST(request: Request) {
       data: {
         duration: durationSec,
         xpEarned: xpGain,
-        newWordsCount,
-        accuracyPct,
+        newWordsCount: effectiveNewWordsCount,
+        accuracyPct: inferredAccuracy,
       },
     });
 
@@ -168,6 +213,9 @@ export async function POST(request: Request) {
       streakDays,
       durationSec,
       sessionCount,
+      inferredNewWordsCount: effectiveNewWordsCount,
+      inferredAccuracy,
+      errorCount,
     };
   });
 

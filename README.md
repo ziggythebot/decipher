@@ -48,8 +48,8 @@ Designed for ADHD brains — dopamine loops that reinforce actual learning, not 
 - Deadline mode: enter your trip date and see a countdown on your dashboard
 
 ### Current implementation status (April 2026)
-- Implemented: landing page, dashboard, vocab queue/session UI, vocab rating API, lightweight FSRS-style scheduling writeback, deconstruction lesson page with completion save, progress page, speaking scenarios + tracked start/end session flow, LiveKit token minting and in-browser room connect/disconnect controls, participant metadata wiring for learner context, session event capture endpoint for transcript updates, Prisma schema, seed data, LiveKit agent worker scaffold.
-- In progress: richer transcript/error analysis and production hardening of live orchestration.
+- Implemented: landing page, dashboard, vocab queue/session UI, vocab rating API, lightweight FSRS-style scheduling writeback, deconstruction lesson page with completion save, progress page with speaking insights, speaking scenarios + tracked start/end session flow, LiveKit token minting and in-browser room connect/disconnect controls, participant metadata wiring for learner context, session event capture endpoint for transcript updates, Prisma schema, seed data, LiveKit agent worker scaffold.
+- In progress: deeper transcript/error classification and production hardening of live orchestration.
 - Planned: full onboarding, production voice orchestration, richer progress analytics.
 
 ---
