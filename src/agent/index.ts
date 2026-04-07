@@ -3,6 +3,7 @@ import {
   WorkerOptions,
   cli,
   defineAgent,
+  llm,
   voice,
 } from "@livekit/agents";
 import * as deepgram from "@livekit/agents-plugin-deepgram";
@@ -12,6 +13,10 @@ import { fileURLToPath } from "node:url";
 
 // Decipher voice agent — French conversation practice
 // Uses Deepgram STT + Claude (via OpenAI-compat) + ElevenLabs TTS
+const noOpTool = llm.tool({
+  description: "Internal no-op tool for provider compatibility.",
+  execute: async () => "ok",
+});
 
 export default defineAgent({
   entry: async (ctx) => {
@@ -52,6 +57,7 @@ export default defineAgent({
         model: "claude-opus-4-1-20250805",
         baseURL: "https://api.anthropic.com/v1/",
         apiKey: process.env.ANTHROPIC_API_KEY,
+        toolChoice: "none",
       }),
       tts: new elevenlabs.TTS({
         apiKey: process.env.ELEVENLABS_API_KEY,
@@ -61,6 +67,9 @@ export default defineAgent({
 
     const agent = new voice.Agent({
       instructions: systemPrompt,
+      tools: {
+        no_op: noOpTool,
+      },
     });
 
     session.on(voice.AgentSessionEventTypes.ConversationItemAdded, (ev) => {
