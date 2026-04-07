@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build --webpack",
     "start": "next start",
+    "postinstall": "prisma generate",
     "lint": "eslint",
     "agent:dev": "node --loader ts-node/esm src/agent/index.ts dev",
     "agent:start": "node --loader ts-node/esm src/agent/index.ts start",
