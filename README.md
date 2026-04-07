@@ -4,8 +4,11 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://typescriptlang.org)
 [![LiveKit](https://img.shields.io/badge/LiveKit_Agents-FF4F00?style=flat-square)](https://livekit.io)
 [![Prisma](https://img.shields.io/badge/Prisma-2D3748?style=flat-square&logo=prisma)](https://prisma.io)
+[![Status](https://img.shields.io/badge/status-in_development-orange?style=flat-square)]()
 
 **Speed language learning for the ADHD brain.** Decipher is a structured language acquisition app built around Tim Ferriss's DiSSS/CaFE methodology — not thematic vocabulary lists and gamification fluff, but the minimum effective dose of grammar and high-frequency vocabulary that actually gets you to conversational fluency.
+
+> **This is an app concept in active development.** French is the trial language. Not yet in production.
 
 French first. Other languages coming.
 
@@ -25,31 +28,24 @@ Duolingo optimizes for daily streaks. Decipher optimizes for **getting to 1,200 
 
 ---
 
-## Features
+## What We're Building
 
 ### Deconstruction Dozen
 Before touching vocabulary, you complete a 20-minute grammar session using 12 carefully chosen sentences that expose every core structural pattern in French — possessives, object pronouns, question formation, negation, modal verbs, near future, and more. Based directly on the Tim Ferriss DiSSS framework. You come out with a personal grammar cheat sheet, not a textbook.
 
 ### Frequency-Ordered Flashcards (FSRS)
-Vocabulary is sequenced by real-world frequency — you learn *de*, *être*, *avoir* before *boulangerie*. Each card runs through the open-source FSRS-5 spaced repetition algorithm (via `ts-fsrs`), so reviews are scheduled based on your actual memory model, not a fixed timer. Cards show pronunciation, example sentences, and mnemonic hints.
+Vocabulary is sequenced by real-world frequency — you learn *de*, *être*, *avoir* before *boulangerie*. Each card runs through the open-source FSRS-5 spaced repetition algorithm (via `ts-fsrs`), so reviews are scheduled based on your actual memory model, not a fixed timer.
 
 ### AI Voice Conversation Practice
-A LiveKit Agents pipeline connects you to a real-time AI French tutor:
-- **Deepgram** handles speech-to-text
-- **Claude** (Anthropic) plays the tutor — adapts language level to your vocabulary count, corrects errors naturally without killing momentum, uses the i+1 method
-- **ElevenLabs** delivers natural French TTS
-- Multiple guided scenarios: Parisian café, street market, asking directions, restaurant, meeting someone at a conference
-- Freeform mode once you're past the basics
-- Transcripts and per-session XP saved automatically
+A LiveKit Agents pipeline connects you to a real-time AI French tutor. Deepgram handles speech-to-text, Claude plays the tutor (adapting language level to your vocabulary count, correcting errors naturally, using the i+1 method), ElevenLabs delivers natural French TTS. Multiple guided scenarios — Parisian café, street market, asking directions, restaurant, meeting someone at a conference — plus freeform mode.
 
 ### Gamification That Doesn't Suck
-Designed for ADHD brains — dopamine loops that reinforce *actual learning*, not just app opens:
-- **XP system** with streak bonuses (3-in-a-row, 5-in-a-row), first-learn bonuses, and mastery bonuses
-- **Levels 1–8** with titles: Absolute Beginner → Tourist → Phrase Hunter → Sentence Builder → Conversationalist → Fluent → Near-Native → Master
-- **Achievement system** across four categories: vocab milestones, streak milestones, conversation, and grammar
-- **Fluency progress bar** — raw word count to conversational (1,200 words), not abstract "crowns" or "gems"
-- Deadline mode: enter your trip or exam date and see a countdown on your dashboard
-- Perfect session detection with animated XP toast
+Designed for ADHD brains — dopamine loops that reinforce actual learning, not just app opens:
+- XP with streak bonuses, first-learn bonuses, and mastery bonuses
+- Levels 1–8: Absolute Beginner → Tourist → Phrase Hunter → Sentence Builder → Conversationalist → Fluent → Near-Native → Master
+- Achievement system across vocab milestones, streaks, conversation, and grammar
+- Fluency progress bar — raw word count to conversational (1,200 words), not abstract crowns or gems
+- Deadline mode: enter your trip date and see a countdown on your dashboard
 
 ### Current implementation status (April 2026)
 - Implemented: landing page, dashboard, vocab queue/session UI, vocab rating API, lightweight FSRS-style scheduling writeback, deconstruction lesson page with completion save, progress page, speaking scenarios + tracked start/end session flow, LiveKit token minting and in-browser room connect/disconnect controls, session event capture endpoint for transcript updates, Prisma schema, seed data, LiveKit agent worker scaffold.
@@ -63,16 +59,21 @@ Designed for ADHD brains — dopamine loops that reinforce *actual learning*, no
 | Layer | Technology |
 |---|---|
 | Framework | Next.js 16 (App Router) |
-| Language | TypeScript 5 |
 | Database | PostgreSQL via Prisma 7 |
 | Auth | Clerk |
 | Spaced repetition | ts-fsrs (FSRS-5 algorithm) |
 | Voice pipeline | LiveKit Agents 1.x |
 | Speech-to-text | Deepgram |
 | Text-to-speech | ElevenLabs |
-| LLM | Claude (Anthropic) via OpenAI-compat layer |
+| LLM | Claude (Anthropic) |
 | Animations | Framer Motion 12 |
 | Styling | Tailwind CSS v4 |
+
+---
+
+## Research
+
+Full product research and methodology doc in [`research/ferriss-language-app.md`](research/ferriss-language-app.md) — covers the DiSSS/CaFE framework in detail, gap analysis vs existing apps, full app spec, and the French-specific implementation plan.
 
 ---
 
