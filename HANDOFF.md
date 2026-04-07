@@ -2,7 +2,7 @@
 
 ## Repo State
 - Branch: `main`
-- Latest commit at handoff: `adf4744`
+- Latest commit at handoff: `891eb97`
 - Status: pushed to `origin/main`
 - Working tree: clean
 
@@ -96,6 +96,9 @@
 - Added Prisma 7 config entrypoint and updated schema datasource block:
   - `prisma.config.ts`
   - `prisma/schema.prisma`
+- Prisma 7 adapter pattern implemented in runtime DB client:
+  - `src/lib/db.ts` (uses `@prisma/adapter-pg`)
+- Local Docker Postgres mapped to host port `5433` to avoid local `5432` conflicts.
 - Updated docs/scripts for local dev session mode and Docker DB workflow:
   - `README.md`
   - `package.json`
@@ -105,23 +108,30 @@
 - PR #2: learner metadata wiring to agent merged to `main`
 
 ## Current Gaps / Next Work (Priority)
-1. Enable Docker daemon locally and run DB bootstrapping:
+1. Debug and verify voice flow end-to-end (highest priority):
+   - LiveKit room connect
+   - agent join + audio round-trip
+   - transcript/event persistence
+   - session end XP/analytics writeback
+2. Run full manual French loop walkthrough and patch broken UX paths before new feature work.
+3. Enable Docker daemon locally and run DB bootstrapping:
    - `npm run db:up`
    - `npm run db:migrate`
    - `npm run db:seed`
-2. Replace lightweight scheduler with full `ts-fsrs` integration.
-3. Harden live room orchestration (reconnects, edge cases, session cleanup guarantees).
-4. Improve transcript analytics:
+4. Replace lightweight scheduler with full `ts-fsrs` integration.
+5. Harden live room orchestration (reconnects, edge cases, session cleanup guarantees).
+6. Improve transcript analytics:
    - error taxonomy (grammar/vocab/pronunciation/hesitation)
    - corrected-form extraction
    - trend views on `/progress`
-5. Add automated coverage for critical loops:
+7. Add automated coverage for critical loops:
    - vocab rating -> review scheduling -> XP/achievements
    - speak start/end/event -> transcript + analytics + XP
-6. Add production readiness checks (rate limits, payload limits, audit logging, retries).
+8. Add production readiness checks (rate limits, payload limits, audit logging, retries).
 
 ## Notes for Next Agent
 - No secrets are committed; `.env` remains local-only.
+- Voice flow remains unverified and should be treated as the first validation task.
 - If picking up `ts-fsrs`, start by isolating scheduler logic currently in `src/lib/srs/rating.ts`.
 - If picking up analytics, extend `errorsLogged` schema shape consistently and keep backward compatibility with existing array payloads.
 - `@clerk/nextjs` still exists in `package.json` but is currently unused at runtime.
