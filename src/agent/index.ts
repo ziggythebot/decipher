@@ -90,7 +90,23 @@ export default defineAgent({
       );
     });
 
+    session.on(voice.AgentSessionEventTypes.Error, (ev) => {
+      const payload = {
+        type: "agent_error",
+        message: ev.error?.message ?? "Unknown voice agent error",
+      };
+      void ctx.room.localParticipant?.publishData(
+        new TextEncoder().encode(JSON.stringify(payload)),
+        { reliable: true }
+      );
+    });
+
     await session.start({ agent, room: ctx.room });
+    session.generateReply({
+      instructions:
+        "Open the conversation now with a short warm greeting, then ask the learner the first question for the active scenario.",
+      allowInterruptions: true,
+    });
 
     await new Promise<void>((resolve) => {
       const done = () => resolve();
