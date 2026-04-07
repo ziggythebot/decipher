@@ -1,0 +1,204 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import type { SpeakScenarioSlug } from "@/lib/speak/scenarios";
+
+type Scenario = {
+  slug: SpeakScenarioSlug;
+  title: string;
+  desc: string;
+};
+
+type RecentSession = {
+  id: string;
+  createdAt: string;
+  scenarioType: string | null;
+  duration: number | null;
+  xpEarned: number;
+};
+
+type Props = {
+  scenarios: Scenario[];
+  recentSessions: RecentSession[];
+};
+
+type ActiveSession = {
+  id: string;
+  startedAt: number;
+  scenarioType: string | null;
+};
+
+function formatElapsed(totalSeconds: number): string {
+  const m = Math.floor(totalSeconds / 60)
+    .toString()
+    .padStart(2, "0");
+  const s = Math.floor(totalSeconds % 60)
+    .toString()
+    .padStart(2, "0");
+  return `${m}:${s}`;
+}
+
+function formatDuration(duration: number | null): string {
+  if (duration === null) return "In progress";
+  const mins = Math.floor(duration / 60);
+  const secs = duration % 60;
+  return `${mins}m ${secs}s`;
+}
+
+export function SpeakClient({ scenarios, recentSessions }: Props) {
+  const router = useRouter();
+  const [active, setActive] = useState<ActiveSession | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [ending, setEnding] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!active) return;
+
+    const id = window.setInterval(() => {
+      setElapsed(Math.floor((Date.now() - active.startedAt) / 1000));
+    }, 1000);
+
+    return () => window.clearInterval(id);
+  }, [active]);
+
+  const activeScenario = useMemo(() => {
+    if (!active?.scenarioType) return "Freeform";
+    return scenarios.find((s) => s.slug === active.scenarioType)?.title ?? active.scenarioType;
+  }, [active, scenarios]);
+
+  async function startSession(scenarioType: SpeakScenarioSlug) {
+    if (active || loading) return;
+    setMessage(null);
+    setLoading(true);
+
+    const response = await fetch("/api/speak/session/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: "guided", scenarioType }),
+    });
+
+    if (!response.ok) {
+      setLoading(false);
+      setMessage("Could not start session. Try again.");
+      return;
+    }
+
+    const data = (await response.json()) as {
+      session: { id: string; createdAt: string; scenarioType: string | null };
+    };
+
+    setActive({
+      id: data.session.id,
+      startedAt: Date.now(),
+      scenarioType: data.session.scenarioType,
+    });
+    setElapsed(0);
+    setLoading(false);
+    setMessage("Session started. Voice room wiring is the next step, but timing/progress is now tracked.");
+  }
+
+  async function endSession() {
+    if (!active || ending) return;
+
+    setEnding(true);
+    setMessage(null);
+
+    const response = await fetch("/api/speak/session/end", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId: active.id, durationSec: elapsed }),
+    });
+
+    if (!response.ok) {
+      setEnding(false);
+      setMessage("Could not end session. Try again.");
+      return;
+    }
+
+    const data = (await response.json()) as { totalGain?: number; level?: number };
+    setMessage(`Session saved. +${data.totalGain ?? 0} XP${data.level ? ` • Level ${data.level}` : ""}`);
+
+    setActive(null);
+    setElapsed(0);
+    setEnding(false);
+    router.refresh();
+  }
+
+  return (
+    <>
+      <div className="mt-6 rounded-xl border border-sky-500/30 bg-sky-500/10 p-4 text-sm text-sky-200">
+        Session lifecycle is now active: start/end a scenario and track duration + XP.
+        LiveKit room launch and live transcript wiring are next.
+      </div>
+
+      <div className="mt-6 rounded-xl border border-zinc-800 bg-zinc-900 p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-zinc-100">Current session</p>
+            <p className="text-xs text-zinc-400">
+              {active ? `${activeScenario} • ${formatElapsed(elapsed)}` : "No active session"}
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={!active || ending}
+            onClick={endSession}
+            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-zinc-700"
+          >
+            {ending ? "Saving..." : "End Session"}
+          </button>
+        </div>
+        {message && <p className="mt-3 text-xs text-zinc-300">{message}</p>}
+      </div>
+
+      <div className="mt-8 grid gap-3 sm:grid-cols-2">
+        {scenarios.map((scenario) => (
+          <article key={scenario.slug} className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
+            <p className="text-xs uppercase tracking-wider text-zinc-500">{scenario.slug}</p>
+            <h2 className="mt-1 font-bold">{scenario.title}</h2>
+            <p className="mt-2 text-sm text-zinc-400">{scenario.desc}</p>
+            <button
+              type="button"
+              disabled={!!active || loading}
+              onClick={() => startSession(scenario.slug)}
+              className="mt-4 w-full rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-zinc-700"
+            >
+              {active ? "Session Active" : loading ? "Starting..." : "Start Session"}
+            </button>
+          </article>
+        ))}
+      </div>
+
+      <section className="mt-10">
+        <h2 className="text-lg font-bold">Recent Sessions</h2>
+        {recentSessions.length === 0 ? (
+          <div className="mt-3 rounded-xl border border-zinc-800 bg-zinc-900 p-4 text-sm text-zinc-400">
+            No completed speaking sessions yet.
+          </div>
+        ) : (
+          <div className="mt-3 space-y-2">
+            {recentSessions.map((session) => (
+              <article
+                key={session.id}
+                className="rounded-xl border border-zinc-800 bg-zinc-900 p-3 text-sm text-zinc-300"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <p className="font-semibold">
+                    {(session.scenarioType ?? "freeform").replaceAll("_", " ")}
+                  </p>
+                  <p className="text-xs text-zinc-500">{new Date(session.createdAt).toLocaleString()}</p>
+                </div>
+                <p className="mt-1 text-xs text-zinc-400">
+                  {formatDuration(session.duration)} • +{session.xpEarned} XP
+                </p>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+    </>
+  );
+}
