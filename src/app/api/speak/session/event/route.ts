@@ -7,6 +7,7 @@ type Body = {
   type?: "user_utterance" | "agent_utterance" | "error";
   text?: string;
 };
+const VOICE_ONLY_MODE = process.env.VOICE_ONLY_MODE === "1";
 
 function extractWords(text: string): string[] {
   const tokens = text
@@ -34,6 +35,10 @@ export async function POST(request: Request) {
 
   if (!body.text || typeof body.text !== "string") {
     return NextResponse.json({ error: "Missing text" }, { status: 400 });
+  }
+
+  if (VOICE_ONLY_MODE) {
+    return NextResponse.json({ ok: true, skippedPersistence: true });
   }
 
   const user = await getOrCreateSessionUser();

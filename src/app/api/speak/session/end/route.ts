@@ -9,6 +9,7 @@ import {
   summarizeErrorCategories,
 } from "@/lib/speak/analytics";
 import { getOrCreateSessionUser } from "@/lib/session-user";
+const VOICE_ONLY_MODE = process.env.VOICE_ONLY_MODE === "1";
 
 type Body = {
   sessionId?: string;
@@ -99,6 +100,31 @@ export async function POST(request: Request) {
     typeof accuracyPctRaw === "number" && !Number.isNaN(accuracyPctRaw)
       ? Math.max(0, Math.min(100, Math.floor(accuracyPctRaw)))
       : null;
+
+  if (VOICE_ONLY_MODE) {
+    return NextResponse.json({
+      ok: true,
+      alreadyEnded: false,
+      sessionId: body.sessionId,
+      totalGain: XP.CONVO_SESSION,
+      level: 1,
+      streakDays: 0,
+      durationSec,
+      sessionCount: 0,
+      inferredNewWordsCount: newWordsCount,
+      inferredAccuracy: accuracyPct,
+      errorCount: 0,
+      categoryCounts: {
+        grammar: 0,
+        vocab: 0,
+        pronunciation: 0,
+        hesitation: 0,
+        other: 0,
+      },
+      correctedForms: [],
+      skippedPersistence: true,
+    });
+  }
 
   const user = await getOrCreateSessionUser();
 

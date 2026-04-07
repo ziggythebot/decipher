@@ -3,6 +3,7 @@ import { getOrCreateSessionUser } from "@/lib/session-user";
 import { DashboardClient } from "./DashboardClient";
 
 export const dynamic = "force-dynamic";
+const VOICE_ONLY_MODE = process.env.VOICE_ONLY_MODE === "1";
 
 export default async function DashboardPage() {
   const user = await getOrCreateSessionUser();
@@ -12,17 +13,29 @@ export default async function DashboardPage() {
     : null;
 
   // Stats
-  const vocabCount = await db.userVocabulary.count({
-    where: { userId: user.id, state: { gt: 0 } },
-  });
+  let vocabCount = 0;
+  let dueToday = 0;
+  let sessionCount = 0;
 
-  const dueToday = await db.userVocabulary.count({
-    where: { userId: user.id, dueDate: { lte: new Date() } },
-  });
-
-  const sessionCount = await db.conversationSession.count({
-    where: { userId: user.id },
-  });
+  if (!VOICE_ONLY_MODE) {
+    try {
+      [vocabCount, dueToday, sessionCount] = await Promise.all([
+        db.userVocabulary.count({
+          where: { userId: user.id, state: { gt: 0 } },
+        }),
+        db.userVocabulary.count({
+          where: { userId: user.id, dueDate: { lte: new Date() } },
+        }),
+        db.conversationSession.count({
+          where: { userId: user.id },
+        }),
+      ]);
+    } catch {
+      vocabCount = 0;
+      dueToday = 0;
+      sessionCount = 0;
+    }
+  }
 
   return (
     <DashboardClient

@@ -5,26 +5,45 @@ import { getOrCreateSessionUser } from "@/lib/session-user";
 import { SpeakClient } from "./SpeakClient";
 
 export const dynamic = "force-dynamic";
+const VOICE_ONLY_MODE = process.env.VOICE_ONLY_MODE === "1";
 
 export default async function SpeakPage() {
   const user = await getOrCreateSessionUser();
 
-  const [vocabCount, sessionCount, recentSessions] = await Promise.all([
-    db.userVocabulary.count({ where: { userId: user.id, state: { gt: 0 } } }),
-    db.conversationSession.count({ where: { userId: user.id, duration: { not: null } } }),
-    db.conversationSession.findMany({
-      where: { userId: user.id, duration: { not: null } },
-      orderBy: { createdAt: "desc" },
-      take: 5,
-      select: {
-        id: true,
-        createdAt: true,
-        scenarioType: true,
-        duration: true,
-        xpEarned: true,
-      },
-    }),
-  ]);
+  let vocabCount = 0;
+  let sessionCount = 0;
+  let recentSessions: Array<{
+    id: string;
+    createdAt: Date;
+    scenarioType: string | null;
+    duration: number | null;
+    xpEarned: number;
+  }> = [];
+
+  if (!VOICE_ONLY_MODE) {
+    try {
+      [vocabCount, sessionCount, recentSessions] = await Promise.all([
+        db.userVocabulary.count({ where: { userId: user.id, state: { gt: 0 } } }),
+        db.conversationSession.count({ where: { userId: user.id, duration: { not: null } } }),
+        db.conversationSession.findMany({
+          where: { userId: user.id, duration: { not: null } },
+          orderBy: { createdAt: "desc" },
+          take: 5,
+          select: {
+            id: true,
+            createdAt: true,
+            scenarioType: true,
+            duration: true,
+            xpEarned: true,
+          },
+        }),
+      ]);
+    } catch {
+      vocabCount = 0;
+      sessionCount = 0;
+      recentSessions = [];
+    }
+  }
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">

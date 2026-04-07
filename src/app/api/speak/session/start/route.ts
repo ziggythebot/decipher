@@ -8,6 +8,7 @@ type Body = {
   scenarioType?: string;
   mode?: "guided" | "freeform";
 };
+const VOICE_ONLY_MODE = process.env.VOICE_ONLY_MODE === "1";
 
 export async function POST(request: Request) {
   let body: Body = {};
@@ -26,27 +27,54 @@ export async function POST(request: Request) {
 
   const user = await getOrCreateSessionUser();
 
-  const knownVocab = await db.userVocabulary.findMany({
-    where: { userId: user.id, state: { gt: 0 } },
-    include: { word: { select: { word: true } } },
-    orderBy: { word: { frequencyRank: "asc" } },
-    take: 200,
-  });
+  let knownVocab: Array<{ word: { word: string } }> = [];
+  let session: {
+    id: string;
+    createdAt: Date;
+    mode: string;
+    scenarioType: string | null;
+  };
 
-  const session = await db.conversationSession.create({
-    data: {
-      userId: user.id,
+  if (VOICE_ONLY_MODE) {
+    session = {
+      id: `voice-only-${Date.now()}`,
+      createdAt: new Date(),
       mode,
       scenarioType: mode === "guided" ? scenarioType : null,
-      wordsEncountered: [],
-    },
-    select: {
-      id: true,
-      createdAt: true,
-      mode: true,
-      scenarioType: true,
-    },
-  });
+    };
+  } else {
+    try {
+      knownVocab = await db.userVocabulary.findMany({
+        where: { userId: user.id, state: { gt: 0 } },
+        include: { word: { select: { word: true } } },
+        orderBy: { word: { frequencyRank: "asc" } },
+        take: 200,
+      });
+
+      session = await db.conversationSession.create({
+        data: {
+          userId: user.id,
+          mode,
+          scenarioType: mode === "guided" ? scenarioType : null,
+          wordsEncountered: [],
+        },
+        select: {
+          id: true,
+          createdAt: true,
+          mode: true,
+          scenarioType: true,
+        },
+      });
+    } catch {
+      session = {
+        id: `voice-only-${Date.now()}`,
+        createdAt: new Date(),
+        mode,
+        scenarioType: mode === "guided" ? scenarioType : null,
+      };
+      knownVocab = [];
+    }
+  }
 
   const livekitUrl = process.env.LIVEKIT_URL ?? null;
   const livekitApiKey = process.env.LIVEKIT_API_KEY ?? null;
