@@ -47,6 +47,11 @@ Designed for ADHD brains — dopamine loops that reinforce actual learning, not 
 - Fluency progress bar — raw word count to conversational (1,200 words), not abstract crowns or gems
 - Deadline mode: enter your trip date and see a countdown on your dashboard
 
+### Current implementation status (April 2026)
+- Implemented: landing page, dashboard, vocab queue/session UI, vocab rating API, lightweight FSRS-style scheduling writeback, deconstruction lesson page with completion save, progress page, speaking scenarios + tracked start/end session flow, LiveKit token minting and in-browser room connect/disconnect controls, session event capture endpoint for transcript updates, Prisma schema, seed data, LiveKit agent worker scaffold.
+- In progress: full agent-linked room orchestration and richer transcript/error analysis.
+- Planned: full onboarding, production voice orchestration, richer progress analytics.
+
 ---
 
 ## Tech Stack
@@ -69,3 +74,221 @@ Designed for ADHD brains — dopamine loops that reinforce actual learning, not 
 ## Research
 
 Full product research and methodology doc in [`research/ferriss-language-app.md`](research/ferriss-language-app.md) — covers the DiSSS/CaFE framework in detail, gap analysis vs existing apps, full app spec, and the French-specific implementation plan.
+
+---
+
+## Prerequisites
+
+- Node.js 20+
+- PostgreSQL database
+- API keys for: Clerk, Anthropic, LiveKit, Deepgram, ElevenLabs
+
+---
+
+## Installation
+
+```bash
+git clone https://github.com/yourusername/decipher.git
+cd decipher
+npm install
+```
+
+### Environment variables
+
+Create a `.env` file:
+
+```env
+# Database
+DATABASE_URL="postgresql://user:password@localhost:5432/decipher"
+
+# Auth (https://clerk.com)
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_...
+CLERK_SECRET_KEY=sk_...
+NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in
+NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
+NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL=/dashboard
+NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL=/dashboard
+
+# LiveKit (https://livekit.io)
+LIVEKIT_API_KEY=...
+LIVEKIT_API_SECRET=...
+LIVEKIT_URL=wss://your-project.livekit.cloud
+
+# AI services
+ANTHROPIC_API_KEY=sk-ant-...
+DEEPGRAM_API_KEY=...
+ELEVENLABS_API_KEY=...
+ELEVENLABS_VOICE_ID_FR=pNInz6obpgDQGcFmaJgB   # optional — defaults to Adam
+```
+
+### Database setup
+
+```bash
+# Run migrations
+npm run db:migrate
+
+# Seed French vocabulary (top 100 frequency words) + achievement definitions
+npm run db:seed
+```
+
+---
+
+## Running Locally
+
+The Next.js app and the voice agent worker run as **two separate processes**.
+
+```bash
+# Terminal 1 — Next.js app
+npm run dev
+
+# Terminal 2 — LiveKit voice agent worker
+npm run agent:dev
+```
+
+The Next.js app runs on `http://localhost:3000`. The `/speak` page currently shows scenarios and readiness state while room launch/session orchestration is being finalized.
+
+In production:
+
+```bash
+npm run build && npm start
+npm run agent:start
+```
+
+---
+
+## Learning Flow
+
+```
+Sign up → Set goal + deadline → Deconstruction Dozen (20 min)
+  → Vocab flashcards (daily, FSRS-scheduled)
+  → AI voice conversation practice
+  → Track progress to 1,200-word milestone
+```
+
+1. **Grammar first** — the Deconstruction Dozen reveals the grammar framework before you memorize a single word. 20 minutes now saves hours of confusion later.
+2. **Vocab daily** — the dashboard surfaces your cards due today. FSRS handles the scheduling; you just rate each card (Again / Hard / Good / Easy).
+3. **Speak early** — guided scenarios are designed for beginners. The agent uses only words you're likely to know, plus a few above your current level.
+
+---
+
+## Architecture
+
+```
+decipher/
+├── src/
+│   ├── app/                    # Next.js App Router
+│   │   ├── page.tsx            # Landing page
+│   │   ├── dashboard/          # Main hub — XP bar, stats, next action CTA
+│   │   ├── learn/
+│   │   │   ├── vocab/          # FSRS flashcard session
+│   │   │   └── deconstruct/    # Deconstruction Dozen lesson content
+│   │   ├── api/
+│   │   │   ├── vocab/rate/     # Rating writeback + scheduling + XP/streak updates
+│   │   │   ├── grammar/complete/ # Deconstruction completion + grammar XP/achievement
+│   │   │   └── speak/session/   # Start/end conversation persistence + event capture
+│   │   ├── speak/              # Speaking scenarios + session readiness UI
+│   │   └── progress/           # Stats + unlocked achievements
+│   ├── agent/
+│   │   └── index.ts            # LiveKit Agents worker — runs as separate process
+│   ├── lib/
+│   │   ├── db.ts               # Prisma client singleton
+│   │   ├── livekit/token.ts    # LiveKit JWT token minting for room join
+│   │   ├── xp.ts               # XP constants, level curve, level titles
+│   │   └── achievements.ts     # Achievement slug definitions
+│   ├── data/
+│   │   ├── french-top100.ts    # Frequency-ordered seed vocabulary (100 words)
+│   │   └── deconstruction-dozen.ts  # 12 grammar-revealing sentences with notes
+│   └── components/
+│       └── game/               # XpBar, XpToast, AchievementUnlock
+└── prisma/
+    ├── schema.prisma           # DB schema
+    └── seed.ts                 # Seeds vocabulary + achievement definitions
+```
+
+Planned additions:
+- `src/app/api/...` route handlers for live speaking room orchestration and progress writes
+- `src/app/speak` live room launch/session lifecycle UX
+
+### Voice agent architecture
+
+The agent worker (`src/agent/index.ts`) is a standalone LiveKit Agents process. When a user starts a conversation session, the Next.js API creates a LiveKit room and passes user context — known vocabulary, grammar profile, goal type, scenario — via room metadata. The agent picks this up on join and constructs a personalized system prompt that:
+
+- Adjusts the French/English ratio based on vocabulary count (60/40 for beginners, 80/20 intermediate, near-100% advanced)
+- Uses only words the learner is likely to know, plus a few at the i+1 level
+- Corrects errors naturally by repeating the correct form in context, without pausing to lecture
+- Publishes utterances via LiveKit data messages for session logging and error tracking
+
+**Voice pipeline:**
+```
+Deepgram STT → Claude (OpenAI-compat layer) → ElevenLabs TTS
+```
+
+**Available conversation scenarios:** ordering coffee, meeting someone, shopping at a market, asking for directions, dinner at a restaurant, freeform.
+
+---
+
+## Database Schema
+
+Key models:
+
+- **User** — auth (Clerk ID), XP, level, streak, language config, goal type, deadline
+- **GrammarProfile** — Deconstruction Dozen completion status, pattern scores, generated cheat sheet (Markdown)
+- **LanguageWord** — frequency-ranked vocabulary with pronunciation, example sentences, mnemonic hints
+- **UserVocabulary** — per-user FSRS state: stability, difficulty, due date, reps, lapses, state (New/Learning/Review/Relearning)
+- **ConversationSession** — full transcripts, XP earned, accuracy percentage, words encountered, error log
+- **Achievement** / **UserAchievement** — achievement catalog and per-user unlock records
+- **StreakEntry** — daily streak history for calendar visualization
+
+---
+
+## XP & Level System
+
+XP is earned for everything that represents actual learning:
+
+| Action | XP |
+|---|---|
+| Correct flashcard | 10 |
+| First time seeing a word | +20 bonus |
+| Word mastered (enters Review state) | 50 |
+| 3-in-a-row streak | +15 bonus |
+| 5-in-a-row streak | +25 bonus |
+| Complete a vocab session | 30 |
+| Perfect session (100% accuracy) | 75 |
+| Each minute in conversation | 5 |
+| Using a word you just learned in conversation | 15 |
+| Complete Deconstruction Dozen | 100 |
+| 7-day streak | 150 |
+| 30-day streak | 500 |
+
+Level thresholds follow an exponential curve: `100 × 1.5^(level-1)` XP per level.
+
+---
+
+## Adding Languages
+
+French is the trial language. The architecture supports any language:
+
+1. Add frequency-ordered vocabulary to `src/data/` following the `WordSeed` type in `french-top100.ts`
+2. Create Deconstruction Dozen sentences for the target language
+3. Add the language code, flag, and name to `DashboardClient.tsx`
+4. Seed the data via `npm run db:seed`
+5. Set a voice ID for ElevenLabs in `.env` (e.g. `ELEVENLABS_VOICE_ID_ES`)
+6. Add conversation scenarios to the agent's `SCENARIOS` object in `src/agent/index.ts`
+
+---
+
+## Contributing
+
+This is an early-stage personal project. PRs welcome, especially for:
+
+- Additional language data (vocabulary seeds + Deconstruction Dozen sentences)
+- New conversation scenarios in the voice agent
+- Progress page and achievement display UI
+- Mobile responsiveness improvements
+- Onboarding flow (goal setting, deadline entry)
+
+---
+
+## License
+
+MIT
