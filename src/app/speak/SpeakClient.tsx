@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Room } from "livekit-client";
+import { Room, RoomEvent } from "livekit-client";
 import type { SpeakScenarioSlug } from "@/lib/speak/scenarios";
 
 type Scenario = {
@@ -84,6 +84,22 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
     };
   }, [room]);
 
+  async function persistSessionEvent(
+    sessionId: string,
+    type: "user_utterance" | "agent_utterance" | "error",
+    text: string
+  ) {
+    try {
+      await fetch("/api/speak/session/event", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId, type, text }),
+      });
+    } catch {
+      // Best-effort persistence so live conversation is not blocked by transient API failures.
+    }
+  }
+
   async function startSession(scenarioType: SpeakScenarioSlug) {
     if (active || loading) return;
     setMessage(null);
@@ -119,6 +135,7 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
 
   async function connectAudio() {
     if (!active?.livekit || connecting || connected) return;
+    const sessionId = active.id;
     setConnecting(true);
     setMessage(null);
 
@@ -127,6 +144,20 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
       nextRoom.on("disconnected", () => {
         setConnected(false);
         setRoom(null);
+      });
+      nextRoom.on(RoomEvent.DataReceived, (payload) => {
+        try {
+          const text = new TextDecoder().decode(payload);
+          const parsed = JSON.parse(text) as { type?: string; text?: string };
+          if (
+            (parsed.type === "user_utterance" || parsed.type === "agent_utterance") &&
+            typeof parsed.text === "string"
+          ) {
+            void persistSessionEvent(sessionId, parsed.type, parsed.text);
+          }
+        } catch {
+          // Ignore malformed payloads from remote participants.
+        }
       });
       await nextRoom.connect(active.livekit.url, active.livekit.token);
       await nextRoom.localParticipant.setMicrophoneEnabled(true);
@@ -181,7 +212,7 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
     <>
       <div className="mt-6 rounded-xl border border-sky-500/30 bg-sky-500/10 p-4 text-sm text-sky-200">
         Session lifecycle is now active: start/end a scenario and track duration + XP.
-        LiveKit room launch and live transcript wiring are next.
+        LiveKit room launch is wired; transcript/error enrichment remains in progress.
       </div>
 
       <div className="mt-6 rounded-xl border border-zinc-800 bg-zinc-900 p-4">
