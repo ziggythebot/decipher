@@ -52,8 +52,8 @@ Designed for ADHD brains — dopamine loops that reinforce *actual learning*, no
 - Perfect session detection with animated XP toast
 
 ### Current implementation status (April 2026)
-- Implemented: landing page, dashboard, vocab queue/session UI, vocab rating API, lightweight FSRS-style scheduling writeback, deconstruction lesson page with completion save, progress page, speaking scenarios + tracked start/end session flow, Prisma schema, seed data, LiveKit agent worker scaffold.
-- In progress: speaking live room/audio launch, transcript/session persistence.
+- Implemented: landing page, dashboard, vocab queue/session UI, vocab rating API, lightweight FSRS-style scheduling writeback, deconstruction lesson page with completion save, progress page, speaking scenarios + tracked start/end session flow, LiveKit token minting and in-browser room connect/disconnect controls, Prisma schema, seed data, LiveKit agent worker scaffold.
+- In progress: transcript/session persistence and full agent-linked room orchestration.
 - Planned: full onboarding, production voice orchestration, richer progress analytics.
 
 ---
@@ -191,6 +191,7 @@ decipher/
 │   │   └── index.ts            # LiveKit Agents worker — runs as separate process
 │   ├── lib/
 │   │   ├── db.ts               # Prisma client singleton
+│   │   ├── livekit/token.ts    # LiveKit JWT token minting for room join
 │   │   ├── xp.ts               # XP constants, level curve, level titles
 │   │   └── achievements.ts     # Achievement slug definitions
 │   ├── data/

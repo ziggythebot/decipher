@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Room } from "livekit-client";
 import type { SpeakScenarioSlug } from "@/lib/speak/scenarios";
 
 type Scenario = {
@@ -27,6 +28,11 @@ type ActiveSession = {
   id: string;
   startedAt: number;
   scenarioType: string | null;
+  livekit: {
+    url: string;
+    token: string;
+    roomName: string;
+  } | null;
 };
 
 function formatElapsed(totalSeconds: number): string {
@@ -53,6 +59,9 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
   const [ending, setEnding] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [message, setMessage] = useState<string | null>(null);
+  const [room, setRoom] = useState<Room | null>(null);
+  const [connecting, setConnecting] = useState(false);
+  const [connected, setConnected] = useState(false);
 
   useEffect(() => {
     if (!active) return;
@@ -68,6 +77,12 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
     if (!active?.scenarioType) return "Freeform";
     return scenarios.find((s) => s.slug === active.scenarioType)?.title ?? active.scenarioType;
   }, [active, scenarios]);
+
+  useEffect(() => {
+    return () => {
+      room?.disconnect();
+    };
+  }, [room]);
 
   async function startSession(scenarioType: SpeakScenarioSlug) {
     if (active || loading) return;
@@ -88,16 +103,48 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
 
     const data = (await response.json()) as {
       session: { id: string; createdAt: string; scenarioType: string | null };
+      livekit: { url: string; token: string; roomName: string } | null;
     };
 
     setActive({
       id: data.session.id,
       startedAt: Date.now(),
       scenarioType: data.session.scenarioType,
+      livekit: data.livekit,
     });
     setElapsed(0);
     setLoading(false);
     setMessage("Session started. Voice room wiring is the next step, but timing/progress is now tracked.");
+  }
+
+  async function connectAudio() {
+    if (!active?.livekit || connecting || connected) return;
+    setConnecting(true);
+    setMessage(null);
+
+    try {
+      const nextRoom = new Room();
+      nextRoom.on("disconnected", () => {
+        setConnected(false);
+        setRoom(null);
+      });
+      await nextRoom.connect(active.livekit.url, active.livekit.token);
+      await nextRoom.localParticipant.setMicrophoneEnabled(true);
+      setRoom(nextRoom);
+      setConnected(true);
+      setMessage("Connected to voice room.");
+    } catch {
+      setMessage("Could not connect to LiveKit room. Check LIVEKIT env vars and server config.");
+    } finally {
+      setConnecting(false);
+    }
+  }
+
+  function disconnectAudio() {
+    room?.disconnect();
+    setRoom(null);
+    setConnected(false);
+    setMessage("Disconnected from voice room.");
   }
 
   async function endSession() {
@@ -121,6 +168,9 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
     const data = (await response.json()) as { totalGain?: number; level?: number };
     setMessage(`Session saved. +${data.totalGain ?? 0} XP${data.level ? ` • Level ${data.level}` : ""}`);
 
+    room?.disconnect();
+    setRoom(null);
+    setConnected(false);
     setActive(null);
     setElapsed(0);
     setEnding(false);
@@ -152,6 +202,34 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
           </button>
         </div>
         {message && <p className="mt-3 text-xs text-zinc-300">{message}</p>}
+        {active?.livekit && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={connectAudio}
+              disabled={connecting || connected}
+              className="rounded-lg bg-sky-600 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-sky-500 disabled:cursor-not-allowed disabled:bg-zinc-700"
+            >
+              {connected ? "Audio Connected" : connecting ? "Connecting..." : "Connect Audio"}
+            </button>
+            <button
+              type="button"
+              onClick={disconnectAudio}
+              disabled={!connected}
+              className="rounded-lg bg-zinc-700 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-zinc-600 disabled:cursor-not-allowed disabled:bg-zinc-800"
+            >
+              Disconnect Audio
+            </button>
+            <span className="self-center text-xs text-zinc-500">
+              Room: {active.livekit.roomName}
+            </span>
+          </div>
+        )}
+        {active && !active.livekit && (
+          <p className="mt-3 text-xs text-amber-300">
+            LIVEKIT env vars are missing; session timing works but audio room connection is unavailable.
+          </p>
+        )}
       </div>
 
       <div className="mt-8 grid gap-3 sm:grid-cols-2">

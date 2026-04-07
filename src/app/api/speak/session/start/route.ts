@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { db } from "@/lib/db";
 import { SPEAK_SCENARIO_SLUGS } from "@/lib/speak/scenarios";
+import { createLiveKitToken } from "@/lib/livekit/token";
 
 type Body = {
   scenarioType?: string;
@@ -48,8 +49,33 @@ export async function POST(request: Request) {
     },
   });
 
+  const livekitUrl = process.env.LIVEKIT_URL ?? null;
+  const livekitApiKey = process.env.LIVEKIT_API_KEY ?? null;
+  const livekitApiSecret = process.env.LIVEKIT_API_SECRET ?? null;
+
+  let livekit: { url: string; token: string; roomName: string } | null = null;
+  if (livekitUrl && livekitApiKey && livekitApiSecret) {
+    const roomName = `decipher-${user.id}-${session.id}`;
+    const identity = `learner-${user.id}`;
+    const token = createLiveKitToken({
+      apiKey: livekitApiKey,
+      apiSecret: livekitApiSecret,
+      identity,
+      room: roomName,
+      name: identity,
+      ttlSeconds: 60 * 30,
+    });
+
+    livekit = {
+      url: livekitUrl,
+      token,
+      roomName,
+    };
+  }
+
   return NextResponse.json({
     ok: true,
     session,
+    livekit,
   });
 }
