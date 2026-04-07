@@ -51,6 +51,11 @@ Designed for ADHD brains — dopamine loops that reinforce *actual learning*, no
 - Deadline mode: enter your trip or exam date and see a countdown on your dashboard
 - Perfect session detection with animated XP toast
 
+### Current implementation status (April 2026)
+- Implemented: landing page, dashboard, vocab queue/session UI, deconstruction lesson page, progress page, speaking scenarios page, Prisma schema, seed data, LiveKit agent worker scaffold.
+- In progress: vocab rating API and FSRS writeback, deconstruction completion persistence, speaking room/session start flow, transcript/session persistence.
+- Planned: full onboarding, production voice orchestration, richer progress analytics.
+
 ---
 
 ## Tech Stack
@@ -139,7 +144,7 @@ npm run dev
 npm run agent:dev
 ```
 
-The Next.js app runs on `http://localhost:3000`. The agent worker connects to your LiveKit project and handles voice sessions when users enter the `/speak` room.
+The Next.js app runs on `http://localhost:3000`. The `/speak` page currently shows scenarios and readiness state while room launch/session orchestration is being finalized.
 
 In production:
 
@@ -171,13 +176,13 @@ Sign up → Set goal + deadline → Deconstruction Dozen (20 min)
 decipher/
 ├── src/
 │   ├── app/                    # Next.js App Router
+│   │   ├── page.tsx            # Landing page
 │   │   ├── dashboard/          # Main hub — XP bar, stats, next action CTA
 │   │   ├── learn/
 │   │   │   ├── vocab/          # FSRS flashcard session
-│   │   │   └── deconstruct/    # Deconstruction Dozen grammar session
-│   │   ├── speak/              # LiveKit voice conversation room
-│   │   ├── progress/           # Stats & achievements
-│   │   └── api/                # Route handlers (vocab rating, sessions, users, words)
+│   │   │   └── deconstruct/    # Deconstruction Dozen lesson content
+│   │   ├── speak/              # Speaking scenarios + session readiness UI
+│   │   └── progress/           # Stats + unlocked achievements
 │   ├── agent/
 │   │   └── index.ts            # LiveKit Agents worker — runs as separate process
 │   ├── lib/
@@ -193,6 +198,11 @@ decipher/
     ├── schema.prisma           # DB schema
     └── seed.ts                 # Seeds vocabulary + achievement definitions
 ```
+
+Planned additions:
+- `src/app/api/...` route handlers for vocab rating, session orchestration, and progress writes
+- `src/app/speak` room launch/session lifecycle UX
+- Persisted deconstruction completion actions
 
 ### Voice agent architecture
 
