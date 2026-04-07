@@ -91,9 +91,13 @@ export default defineAgent({
     });
 
     session.on(voice.AgentSessionEventTypes.Error, (ev) => {
+      const errorMessage =
+        ev.error instanceof Error && typeof ev.error.message === "string"
+          ? ev.error.message
+          : "Unknown voice agent error";
       const payload = {
         type: "agent_error",
-        message: ev.error?.message ?? "Unknown voice agent error",
+        message: errorMessage,
       };
       void ctx.room.localParticipant?.publishData(
         new TextEncoder().encode(JSON.stringify(payload)),
