@@ -6,12 +6,32 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "agent:dev": "node --loader ts-node/esm src/agent/index.ts dev",
+    "agent:start": "node --loader ts-node/esm src/agent/index.ts start",
+    "db:migrate": "prisma migrate dev",
+    "db:seed": "tsx prisma/seed.ts",
+    "db:studio": "prisma studio"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.82.0",
+    "@clerk/nextjs": "^7.0.11",
+    "@livekit/agents": "^1.2.3",
+    "@livekit/agents-plugin-deepgram": "^1.2.3",
+    "@livekit/agents-plugin-elevenlabs": "^1.2.3",
+    "@livekit/agents-plugin-openai": "^1.2.3",
+    "@livekit/agents-plugin-silero": "^1.2.3",
+    "@prisma/client": "^7.6.0",
+    "clsx": "^2.1.1",
+    "framer-motion": "^12.38.0",
+    "livekit-client": "^2.18.1",
+    "lucide-react": "^1.7.0",
     "next": "16.2.2",
+    "prisma": "^7.6.0",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "tailwind-merge": "^3.5.0",
+    "ts-fsrs": "^5.3.2"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -21,6 +41,8 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.2",
     "tailwindcss": "^4",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
     "typescript": "^5"
   }
 }

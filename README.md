@@ -1,36 +1,92 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Decipher — Speed Language Learning
 
-## Getting Started
+Tim Ferriss DiSSS method + AI voice tutor. French first.
 
-First, run the development server:
+## Stack
+
+- **Next.js 15** — frontend
+- **Postgres + Prisma** — user data, vocab progress, sessions
+- **ts-fsrs** — spaced repetition (FSRS algorithm)
+- **Clerk** — auth
+- **LiveKit Agents** — real-time voice pipeline
+- **Deepgram** — speech-to-text
+- **ElevenLabs** — text-to-speech (French voice)
+- **Claude** — conversation AI (via Anthropic API)
+
+## Setup
+
+### 1. Install dependencies
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### 2. Configure environment
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Fill in `.env`:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```
+DATABASE_URL        — Postgres connection string
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY / CLERK_SECRET_KEY — https://clerk.com
+LIVEKIT_API_KEY / LIVEKIT_API_SECRET / LIVEKIT_URL  — https://livekit.io
+DEEPGRAM_API_KEY    — https://deepgram.com
+ELEVENLABS_API_KEY  — https://elevenlabs.io
+ANTHROPIC_API_KEY   — https://console.anthropic.com
+```
 
-## Learn More
+### 3. Set up database
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+npm run db:migrate   # Run migrations
+npm run db:seed      # Seeds French top-100 words + achievements
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### 4. Run
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+npm run dev          # Next.js on :3000
+npm run agent:dev    # LiveKit agent worker (separate terminal)
+```
 
-## Deploy on Vercel
+## Architecture
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### Voice pipeline
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```
+User speaks → LiveKit room → Deepgram STT → Claude (with user vocab profile) → ElevenLabs TTS → audio back
+```
+
+The agent runs as a separate worker (`src/agent/index.ts`). Each session gets the user's vocabulary and grammar profile injected as system context so the AI only uses words you know.
+
+### Gamification (ADHD-first)
+
+- XP for every correct answer, streak bonuses at 3× and 5×
+- Level system (1–8, "Tourist" → "Master")
+- Achievement badges with unlock animations
+- Streak tracker with fire emoji
+- Fluency progress bar (0 → 1,200 words = conversational)
+
+### Ferriss Method
+
+1. **Deconstruction Dozen** — 12 sentences reveal the full French grammar framework in one session
+2. **Frequency-ordered vocab** — words by how common they are, not by theme
+3. **Stakes system** — deadline countdown, vocabulary target bar
+4. **AI conversation** — context-aware agent that only uses words you know (+i+1)
+
+## Project structure
+
+```
+src/
+  app/
+    dashboard/           Main hub (XP, stats, quick actions)
+    learn/vocab/         Daily flashcard sessions (FSRS)
+    learn/deconstruct/   Deconstruction Dozen session
+    speak/               LiveKit voice conversation
+  agent/index.ts         LiveKit Agents worker
+  components/game/       XpBar, XpToast, AchievementUnlock
+  data/                  French word list, Deconstruction Dozen
+  lib/                   xp.ts, achievements.ts, db.ts
+prisma/
+  schema.prisma
+  seed.ts
+```
