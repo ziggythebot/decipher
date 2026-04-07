@@ -1,0 +1,16 @@
+app = "decipher-voice-worker"
+primary_region = "lhr"
+
+[build]
+  dockerfile = "Dockerfile.worker"
+
+[processes]
+  app = "npm run agent:start"
+
+[restart]
+  policy = "always"
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 512

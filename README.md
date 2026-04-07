@@ -156,6 +156,30 @@ npm run build && npm start
 npm run agent:start
 ```
 
+Hosted worker (recommended, not local):
+
+```bash
+# one-time
+fly auth login
+fly launch --name decipher-voice-worker --no-deploy --config fly.worker.toml
+
+# set worker runtime secrets
+fly secrets set \
+  LIVEKIT_URL=... \
+  LIVEKIT_API_KEY=... \
+  LIVEKIT_API_SECRET=... \
+  LIVEKIT_AGENT_NAME=decipher-agent \
+  DEEPGRAM_API_KEY=... \
+  ELEVENLABS_API_KEY=... \
+  ANTHROPIC_API_KEY=... \
+  -a decipher-voice-worker
+
+# deploy/update worker
+fly deploy -c fly.worker.toml -a decipher-voice-worker
+fly status -a decipher-voice-worker
+fly logs -a decipher-voice-worker
+```
+
 ---
 
 ## Learning Flow

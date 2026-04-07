@@ -1,0 +1,16 @@
+FROM node:20-bookworm-slim
+
+WORKDIR /app
+
+ENV NODE_ENV=production
+
+COPY package*.json ./
+COPY prisma ./prisma
+COPY tsconfig.json ./
+COPY prisma.config.ts ./
+
+RUN npm ci
+
+COPY src ./src
+
+CMD ["npm", "run", "agent:start"]
