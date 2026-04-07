@@ -227,6 +227,8 @@ Deepgram STT → Claude (OpenAI-compat layer) → ElevenLabs TTS
 
 **Available conversation scenarios:** ordering coffee, meeting someone, shopping at a market, asking for directions, dinner at a restaurant, freeform.
 
+Detailed runtime + debugging guide: [`VOICE_RUNTIME_ARCHITECTURE.md`](VOICE_RUNTIME_ARCHITECTURE.md)
+
 ---
 
 ## Database Schema
