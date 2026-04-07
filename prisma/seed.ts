@@ -1,8 +1,12 @@
 import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
+import { config } from "dotenv";
 import { FRENCH_TOP_100 } from "../src/data/french-top100";
 import { ACHIEVEMENTS } from "../src/lib/achievements";
 
-const db = new PrismaClient();
+config();
+const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
+const db = new PrismaClient({ adapter });
 
 async function main() {
   console.log("Seeding French word list...");
