@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { ACHIEVEMENTS } from "@/lib/achievements";
 import { XP, levelFromTotalXp } from "@/lib/xp";
+import { getOrCreateSessionUser } from "@/lib/session-user";
 
 function startOfUtcDay(date: Date): Date {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
@@ -43,19 +43,7 @@ async function unlockAchievement(
 }
 
 export async function POST() {
-  const { userId: clerkId } = await auth();
-  if (!clerkId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const user = await db.user.findUnique({
-    where: { clerkId },
-    include: { grammarProfile: true },
-  });
-
-  if (!user) {
-    return NextResponse.json({ error: "User not found" }, { status: 404 });
-  }
+  const user = await getOrCreateSessionUser();
 
   const now = new Date();
   const alreadyCompleted = user.grammarProfile?.deconstructionDone ?? false;

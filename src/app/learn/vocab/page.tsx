@@ -1,14 +1,9 @@
-import { auth } from "@clerk/nextjs/server";
-import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
+import { getOrCreateSessionUser } from "@/lib/session-user";
 import { VocabSessionClient } from "./VocabSessionClient";
 
 export default async function VocabPage() {
-  const { userId } = await auth();
-  if (!userId) redirect("/sign-in");
-
-  const user = await db.user.findUnique({ where: { clerkId: userId } });
-  if (!user) redirect("/dashboard");
+  const user = await getOrCreateSessionUser();
 
   // Get due cards (FSRS: dueDate <= now), prioritised by frequency rank
   const dueCards = await db.userVocabulary.findMany({

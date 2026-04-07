@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { ACHIEVEMENTS } from "@/lib/achievements";
@@ -9,6 +8,7 @@ import {
   extractCorrectedForms,
   summarizeErrorCategories,
 } from "@/lib/speak/analytics";
+import { getOrCreateSessionUser } from "@/lib/session-user";
 
 type Body = {
   sessionId?: string;
@@ -77,11 +77,6 @@ async function unlockAchievement(
 }
 
 export async function POST(request: Request) {
-  const { userId: clerkId } = await auth();
-  if (!clerkId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
   let body: Body;
   try {
     body = (await request.json()) as Body;
@@ -105,10 +100,7 @@ export async function POST(request: Request) {
       ? Math.max(0, Math.min(100, Math.floor(accuracyPctRaw)))
       : null;
 
-  const user = await db.user.findUnique({ where: { clerkId } });
-  if (!user) {
-    return NextResponse.json({ error: "User not found" }, { status: 404 });
-  }
+  const user = await getOrCreateSessionUser();
 
   const session = await db.conversationSession.findFirst({
     where: {

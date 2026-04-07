@@ -1,34 +1,13 @@
-import { auth } from "@clerk/nextjs/server";
-import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
+import { getOrCreateSessionUser } from "@/lib/session-user";
 import { DashboardClient } from "./DashboardClient";
 
 export default async function DashboardPage() {
-  const { userId } = await auth();
-  if (!userId) redirect("/sign-in");
-
-  // Get or create user
-  let user = await db.user.findUnique({
-    where: { clerkId: userId },
-    include: {
-      grammarProfile: true,
-      achievements: { include: { achievement: true } },
-    },
-  });
-
-  if (!user) {
-    user = await db.user.create({
-      data: {
-        clerkId: userId,
-        email: "", // filled from Clerk webhook
-        targetLanguage: "fr",
-      },
-      include: {
-        grammarProfile: true,
-        achievements: { include: { achievement: true } },
-      },
-    });
-  }
+  const user = await getOrCreateSessionUser();
+  const now = new Date();
+  const daysToDeadline = user.deadlineDate
+    ? Math.max(0, Math.ceil((user.deadlineDate.getTime() - now.getTime()) / 86400000))
+    : null;
 
   // Stats
   const vocabCount = await db.userVocabulary.count({
@@ -53,7 +32,7 @@ export default async function DashboardPage() {
         totalXp: user.totalXp,
         targetLanguage: user.targetLanguage,
         goalType: user.goalType,
-        deadlineDate: user.deadlineDate?.toISOString() ?? null,
+        daysToDeadline,
         grammarDone: user.grammarProfile?.deconstructionDone ?? false,
       }}
       stats={{ vocabCount, dueToday, sessionCount }}

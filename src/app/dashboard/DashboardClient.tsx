@@ -13,7 +13,7 @@ type Props = {
     totalXp: number;
     targetLanguage: string;
     goalType: string;
-    deadlineDate: string | null;
+    daysToDeadline: number | null;
     grammarDone: boolean;
   };
   stats: {
@@ -42,10 +42,7 @@ const LANGUAGE_NAMES: Record<string, string> = {
 export function DashboardClient({ user, stats }: Props) {
   const flag = LANGUAGE_FLAGS[user.targetLanguage] ?? "🌍";
   const langName = LANGUAGE_NAMES[user.targetLanguage] ?? user.targetLanguage;
-
-  const daysToDeadline = user.deadlineDate
-    ? Math.max(0, Math.ceil((new Date(user.deadlineDate).getTime() - Date.now()) / 86400000))
-    : null;
+  const daysToDeadline = user.daysToDeadline;
 
   const fluencyPct = Math.min(100, Math.floor((stats.vocabCount / 1200) * 100));
 

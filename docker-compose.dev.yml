@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: decipher-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: decipher
+      POSTGRES_PASSWORD: decipher
+      POSTGRES_DB: decipher
+    ports:
+      - "5432:5432"
+    volumes:
+      - decipher_pgdata:/var/lib/postgresql/data
+
+volumes:
+  decipher_pgdata:

@@ -1,16 +1,11 @@
 import Link from "next/link";
-import { auth } from "@clerk/nextjs/server";
-import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { SPEAK_SCENARIOS } from "@/lib/speak/scenarios";
+import { getOrCreateSessionUser } from "@/lib/session-user";
 import { SpeakClient } from "./SpeakClient";
 
 export default async function SpeakPage() {
-  const { userId } = await auth();
-  if (!userId) redirect("/sign-in");
-
-  const user = await db.user.findUnique({ where: { clerkId: userId } });
-  if (!user) redirect("/dashboard");
+  const user = await getOrCreateSessionUser();
 
   const [vocabCount, sessionCount, recentSessions] = await Promise.all([
     db.userVocabulary.count({ where: { userId: user.id, state: { gt: 0 } } }),

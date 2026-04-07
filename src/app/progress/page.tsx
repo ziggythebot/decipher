@@ -1,25 +1,11 @@
 import Link from "next/link";
-import { auth } from "@clerk/nextjs/server";
-import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { levelTitle } from "@/lib/xp";
 import type { CategoryCounts, ErrorCategory } from "@/lib/speak/analytics";
+import { getOrCreateSessionUser } from "@/lib/session-user";
 
 export default async function ProgressPage() {
-  const { userId } = await auth();
-  if (!userId) redirect("/sign-in");
-
-  const user = await db.user.findUnique({
-    where: { clerkId: userId },
-    include: {
-      achievements: {
-        include: { achievement: true },
-        orderBy: { unlockedAt: "desc" },
-      },
-    },
-  });
-
-  if (!user) redirect("/dashboard");
+  const user = await getOrCreateSessionUser();
 
   const [wordsLearned, sessions, knownVocab, recentSessions] = await Promise.all([
     db.userVocabulary.count({ where: { userId: user.id, state: { gt: 0 } } }),

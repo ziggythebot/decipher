@@ -1,20 +1,10 @@
 import Link from "next/link";
-import { auth } from "@clerk/nextjs/server";
-import { redirect } from "next/navigation";
-import { db } from "@/lib/db";
 import { FRENCH_DECONSTRUCTION_DOZEN } from "@/data/deconstruction-dozen";
+import { getOrCreateSessionUser } from "@/lib/session-user";
 import { CompleteButton } from "./CompleteButton";
 
 export default async function DeconstructPage() {
-  const { userId } = await auth();
-  if (!userId) redirect("/sign-in");
-
-  const user = await db.user.findUnique({
-    where: { clerkId: userId },
-    include: { grammarProfile: true },
-  });
-
-  if (!user) redirect("/dashboard");
+  const user = await getOrCreateSessionUser();
 
   const completed = user.grammarProfile?.deconstructionDone ?? false;
 

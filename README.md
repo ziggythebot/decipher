@@ -48,7 +48,7 @@ Designed for ADHD brains — dopamine loops that reinforce actual learning, not 
 - Deadline mode: enter your trip date and see a countdown on your dashboard
 
 ### Current implementation status (April 2026)
-- Implemented: landing page, dashboard, vocab queue/session UI, vocab rating API, lightweight FSRS-style scheduling writeback, deconstruction lesson page with completion save, progress page with speaking insights + issue mix trends, speaking scenarios + tracked start/end session flow, LiveKit token minting and in-browser room connect/disconnect controls, participant metadata wiring for learner context, session event capture endpoint for transcript updates, Prisma schema, seed data, LiveKit agent worker scaffold.
+- Implemented: landing page, dashboard, vocab queue/session UI, vocab rating API, lightweight FSRS-style scheduling writeback, deconstruction lesson page with completion save, progress page with speaking insights + issue mix trends, speaking scenarios + tracked start/end session flow, LiveKit token minting and in-browser room connect/disconnect controls, participant metadata wiring for learner context, session event capture endpoint for transcript updates, Prisma schema, seed data, LiveKit agent worker scaffold, auth-mothballed local dev user mode.
 - In progress: deeper correction extraction quality and production hardening of live orchestration.
 - Planned: full onboarding, production voice orchestration, richer progress analytics.
 
@@ -60,7 +60,7 @@ Designed for ADHD brains — dopamine loops that reinforce actual learning, not 
 |---|---|
 | Framework | Next.js 16 (App Router) |
 | Database | PostgreSQL via Prisma 7 |
-| Auth | Clerk |
+| Auth | Mothballed (local dev session user) |
 | Spaced repetition | ts-fsrs (FSRS-5 algorithm) |
 | Voice pipeline | LiveKit Agents 1.x |
 | Speech-to-text | Deepgram |
@@ -80,8 +80,8 @@ Full product research and methodology doc in [`research/ferriss-language-app.md`
 ## Prerequisites
 
 - Node.js 20+
-- PostgreSQL database
-- API keys for: Clerk, Anthropic, LiveKit, Deepgram, ElevenLabs
+- PostgreSQL database (or Docker)
+- API keys for: Anthropic, LiveKit, Deepgram, ElevenLabs
 
 ---
 
@@ -101,13 +101,9 @@ Create a `.env` file:
 # Database
 DATABASE_URL="postgresql://user:password@localhost:5432/decipher"
 
-# Auth (https://clerk.com)
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_...
-CLERK_SECRET_KEY=sk_...
-NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in
-NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
-NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL=/dashboard
-NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL=/dashboard
+# Local dev session user (auth mothballed)
+DEV_CLERK_ID=dev-local-user
+DEV_EMAIL=dev-local-user@local.dev
 
 # LiveKit (https://livekit.io)
 LIVEKIT_API_KEY=...
@@ -124,11 +120,17 @@ ELEVENLABS_VOICE_ID_FR=pNInz6obpgDQGcFmaJgB   # optional — defaults to Adam
 ### Database setup
 
 ```bash
+# Option A: start local Postgres via Docker
+npm run db:up
+
 # Run migrations
 npm run db:migrate
 
 # Seed French vocabulary (top 100 frequency words) + achievement definitions
 npm run db:seed
+
+# Optional: stop local Postgres container
+npm run db:down
 ```
 
 ---
@@ -231,7 +233,7 @@ Deepgram STT → Claude (OpenAI-compat layer) → ElevenLabs TTS
 
 Key models:
 
-- **User** — auth (Clerk ID), XP, level, streak, language config, goal type, deadline
+- **User** — session identity (`clerkId` field currently used for local dev identity), XP, level, streak, language config, goal type, deadline
 - **GrammarProfile** — Deconstruction Dozen completion status, pattern scores, generated cheat sheet (Markdown)
 - **LanguageWord** — frequency-ranked vocabulary with pronunciation, example sentences, mnemonic hints
 - **UserVocabulary** — per-user FSRS state: stability, difficulty, due date, reps, lapses, state (New/Learning/Review/Relearning)
