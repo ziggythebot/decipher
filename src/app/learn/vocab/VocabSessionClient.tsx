@@ -21,14 +21,13 @@ type Card = {
 
 type Props = {
   cards: Card[];
-  userId: string;
 };
 
 type Rating = 1 | 2 | 3 | 4; // FSRS ratings: Again | Hard | Good | Easy
 
-export function VocabSessionClient({ cards, userId }: Props) {
+export function VocabSessionClient({ cards }: Props) {
   const router = useRouter();
-  const [queue, setQueue] = useState(cards);
+  const [queue] = useState(cards);
   const [current, setCurrent] = useState(0);
   const [flipped, setFlipped] = useState(false);
   const [streak, setStreak] = useState(0);
@@ -63,11 +62,15 @@ export function VocabSessionClient({ cards, userId }: Props) {
     }
 
     // Save rating to server
-    await fetch("/api/vocab/rate", {
+    const response = await fetch("/api/vocab/rate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ vocabId: card.id, rating, xpGained }),
     });
+    if (!response.ok) {
+      // Keep UX resilient; failed writes should not silently break progression forever.
+      console.error("Failed to save vocab rating");
+    }
 
     // Advance
     setFlipped(false);
@@ -226,10 +229,10 @@ export function VocabSessionClient({ cards, userId }: Props) {
                 exit={{ opacity: 0 }}
                 className="mt-4 grid grid-cols-4 gap-2"
               >
-                <RatingButton rating={1} label="Again" color="bg-red-900/50 border-red-800 hover:bg-red-900 text-red-300" onRate={() => rate(1)} />
-                <RatingButton rating={2} label="Hard" color="bg-orange-900/50 border-orange-800 hover:bg-orange-900 text-orange-300" onRate={() => rate(2)} />
-                <RatingButton rating={3} label="Good" color="bg-green-900/50 border-green-800 hover:bg-green-900 text-green-300" onRate={() => rate(3)} />
-                <RatingButton rating={4} label="Easy" color="bg-indigo-900/50 border-indigo-800 hover:bg-indigo-900 text-indigo-300" onRate={() => rate(4)} />
+                <RatingButton label="Again" color="bg-red-900/50 border-red-800 hover:bg-red-900 text-red-300" onRate={() => rate(1)} />
+                <RatingButton label="Hard" color="bg-orange-900/50 border-orange-800 hover:bg-orange-900 text-orange-300" onRate={() => rate(2)} />
+                <RatingButton label="Good" color="bg-green-900/50 border-green-800 hover:bg-green-900 text-green-300" onRate={() => rate(3)} />
+                <RatingButton label="Easy" color="bg-indigo-900/50 border-indigo-800 hover:bg-indigo-900 text-indigo-300" onRate={() => rate(4)} />
               </motion.div>
             )}
           </AnimatePresence>
@@ -239,7 +242,7 @@ export function VocabSessionClient({ cards, userId }: Props) {
   );
 }
 
-function RatingButton({ label, color, onRate }: { rating: number; label: string; color: string; onRate: () => void }) {
+function RatingButton({ label, color, onRate }: { label: string; color: string; onRate: () => void }) {
   return (
     <button
       onClick={onRate}

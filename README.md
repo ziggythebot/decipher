@@ -52,8 +52,8 @@ Designed for ADHD brains — dopamine loops that reinforce *actual learning*, no
 - Perfect session detection with animated XP toast
 
 ### Current implementation status (April 2026)
-- Implemented: landing page, dashboard, vocab queue/session UI, deconstruction lesson page, progress page, speaking scenarios page, Prisma schema, seed data, LiveKit agent worker scaffold.
-- In progress: vocab rating API and FSRS writeback, deconstruction completion persistence, speaking room/session start flow, transcript/session persistence.
+- Implemented: landing page, dashboard, vocab queue/session UI, vocab rating API, lightweight FSRS-style scheduling writeback, deconstruction lesson page, progress page, speaking scenarios page, Prisma schema, seed data, LiveKit agent worker scaffold.
+- In progress: deconstruction completion persistence, speaking room/session start flow, transcript/session persistence.
 - Planned: full onboarding, production voice orchestration, richer progress analytics.
 
 ---
@@ -181,6 +181,8 @@ decipher/
 │   │   ├── learn/
 │   │   │   ├── vocab/          # FSRS flashcard session
 │   │   │   └── deconstruct/    # Deconstruction Dozen lesson content
+│   │   ├── api/
+│   │   │   └── vocab/rate/     # Rating writeback + scheduling + XP/streak updates
 │   │   ├── speak/              # Speaking scenarios + session readiness UI
 │   │   └── progress/           # Stats + unlocked achievements
 │   ├── agent/
@@ -200,7 +202,7 @@ decipher/
 ```
 
 Planned additions:
-- `src/app/api/...` route handlers for vocab rating, session orchestration, and progress writes
+- `src/app/api/...` route handlers for speaking session orchestration and progress writes
 - `src/app/speak` room launch/session lifecycle UX
 - Persisted deconstruction completion actions
 

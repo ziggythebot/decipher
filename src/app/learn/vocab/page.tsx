@@ -65,7 +65,6 @@ export default async function VocabPage() {
         state: c.state,
         reps: c.reps,
       }))}
-      userId={user.id}
     />
   );
 }
