@@ -5,7 +5,7 @@ Build a production-ready web MVP of Decipher first, while keeping architecture p
 
 ## Current Status (April 7, 2026)
 - Repo branch: `main`
-- Latest shipped commit: `adf4744`
+- Latest shipped commit: `f542989`
 - Completed:
 1. Web MVP loop (dashboard, vocab, deconstruct, speak, progress) is wired end-to-end.
 2. Vocab rating API persists scheduling, XP/level/streak, and achievements.
@@ -13,8 +13,17 @@ Build a production-ready web MVP of Decipher first, while keeping architecture p
 4. LiveKit token minting + participant metadata handoff to agent is implemented.
 5. Auth is currently mothballed in favor of local dev session identity (`src/lib/session-user.ts`).
 6. Local DB workflow is defined (`docker-compose.dev.yml`, `prisma.config.ts`, migrate/seed scripts).
-- Active blocker:
+7. Prisma 7 adapter pattern fixed — PrismaClient now uses `@prisma/adapter-pg` (url in schema.prisma is no longer valid in Prisma 7).
+8. Phase 3 complete: streak history grid on progress page, Vitest test suite (30 tests, xp/srs/achievements).
+- Active blockers:
 1. Docker daemon must be running locally before `npm run db:up` works.
+2. Homebrew PostgreSQL 14 occupies port 5432 — Docker is configured to use port 5433. DATABASE_URL in .env reflects this.
+3. Voice sessions (LiveKit + Deepgram + ElevenLabs) not verified end-to-end — API keys are in .env but the speaking flow has not been tested live. This is the next priority before any further feature work.
+- Next priority:
+1. Debug and verify voice session end-to-end (LiveKit room connect → agent joins → speech works → session persists).
+2. Walk through the full French learning loop manually and fix any broken UX paths.
+3. Onboarding flow (goal, deadline, language selection) — currently skipped, user lands directly on dashboard.
+4. Auth (Clerk re-enable or replacement) — needed before any multi-user use.
 
 ## Product Scope
 ### Primary user outcome
@@ -98,7 +107,7 @@ Keep framework-specific code at the edges.
 - Transcript and XP appear in progress/dashboard
 - Session failures are surfaced with retry-safe UX
 
-### Phase 3 - Progress, Achievements, and Quality (Week 6) [Partially Done]
+### Phase 3 - Progress, Achievements, and Quality (Week 6) [Done]
 ### Goals
 - Make retention loop legible and trustworthy
 
