@@ -4,6 +4,8 @@ import { SPEAK_SCENARIOS } from "@/lib/speak/scenarios";
 import { getOrCreateSessionUser } from "@/lib/session-user";
 import { SpeakClient } from "./SpeakClient";
 
+export const dynamic = "force-dynamic";
+
 export default async function SpeakPage() {
   const user = await getOrCreateSessionUser();
 

@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import { ACHIEVEMENTS } from "@/lib/achievements";
 
 const VALID_CATEGORIES = ["vocab", "streak", "conversation", "grammar"] as const;
-type ValidCategory = typeof VALID_CATEGORIES[number];
 
 describe("ACHIEVEMENTS array", () => {
   it("has no duplicate slugs", () => {

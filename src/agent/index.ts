@@ -1,9 +1,9 @@
 import {
+  AutoSubscribe,
   WorkerOptions,
   cli,
   defineAgent,
-  llm,
-  pipeline,
+  voice,
 } from "@livekit/agents";
 import * as deepgram from "@livekit/agents-plugin-deepgram";
 import * as elevenlabs from "@livekit/agents-plugin-elevenlabs";
@@ -15,18 +15,26 @@ import { fileURLToPath } from "node:url";
 
 export default defineAgent({
   entry: async (ctx) => {
-    await ctx.connect();
+    await ctx.connect(undefined, AutoSubscribe.AUDIO_ONLY);
+    await ctx.waitForParticipant();
 
     const metadata = getLearnerMetadata(ctx);
     const {
-      userName = "learner",
-      knownWords = [],
-      grammarProfile = {},
-      goalType = "social",
-      sessionMode = "guided", // guided | freeform
-      scenarioType = "ordering_coffee",
-      languageName = "French",
+      userName: rawUserName,
+      knownWords: rawKnownWords,
+      grammarProfile: rawGrammarProfile,
+      goalType: rawGoalType,
+      sessionMode: rawSessionMode,
+      scenarioType: rawScenarioType,
+      languageName: rawLanguageName,
     } = metadata;
+    const userName = asString(rawUserName, "learner");
+    const knownWords = asStringArray(rawKnownWords);
+    const grammarProfile = asRecord(rawGrammarProfile);
+    const goalType = asString(rawGoalType, "social");
+    const sessionMode = asString(rawSessionMode, "guided");
+    const scenarioType = asString(rawScenarioType, "ordering_coffee");
+    const languageName = asString(rawLanguageName, "French");
 
     const systemPrompt = buildSystemPrompt({
       userName,
@@ -38,45 +46,50 @@ export default defineAgent({
       languageName,
     });
 
-    const agent = new pipeline.VoicePipelineAgent(
-      new deepgram.STT(),
-      new openai.LLM({
-        model: "claude-opus-4-5",
-        baseURL: "https://api.anthropic.com/v1",
+    const session = new voice.AgentSession({
+      stt: new deepgram.STT({ apiKey: process.env.DEEPGRAM_API_KEY }),
+      llm: new openai.LLM({
+        model: "claude-opus-4-1-20250805",
+        baseURL: "https://api.anthropic.com/v1/",
         apiKey: process.env.ANTHROPIC_API_KEY,
       }),
-      new elevenlabs.TTS({
+      tts: new elevenlabs.TTS({
+        apiKey: process.env.ELEVENLABS_API_KEY,
         voiceId: process.env.ELEVENLABS_VOICE_ID_FR ?? "pNInz6obpgDQGcFmaJgB",
       }),
-      {
-        chatCtx: new llm.ChatContext().append({
-          role: llm.ChatRole.SYSTEM,
-          text: systemPrompt,
-        }),
-      }
-    );
-
-    agent.on("agent_started_speaking", () => {
-      // Could emit to room metadata for UI sync
     });
 
-    agent.on("user_speech_committed", (userMessage: llm.ChatMessage) => {
-      // Log user utterances for error tracking — sent via room data messages
-      ctx.room.localParticipant?.publishData(
-        JSON.stringify({ type: "user_utterance", text: userMessage.content }),
+    const agent = new voice.Agent({
+      instructions: systemPrompt,
+    });
+
+    session.on(voice.AgentSessionEventTypes.ConversationItemAdded, (ev) => {
+      const role = ev.item.role;
+      if (role !== "user" && role !== "assistant") return;
+
+      const text = stringifyMessageContent(ev.item.content);
+      if (!text) return;
+
+      const payload =
+        role === "user"
+          ? { type: "user_utterance", text }
+          : { type: "agent_utterance", text };
+
+      void ctx.room.localParticipant?.publishData(
+        new TextEncoder().encode(JSON.stringify(payload)),
         { reliable: true }
       );
     });
 
-    agent.on("agent_speech_committed", (agentMessage: llm.ChatMessage) => {
-      ctx.room.localParticipant?.publishData(
-        JSON.stringify({ type: "agent_utterance", text: agentMessage.content }),
-        { reliable: true }
-      );
-    });
+    await session.start({ agent, room: ctx.room });
 
-    const session = await agent.start(ctx.room);
-    await session.waitForDisconnection();
+    await new Promise<void>((resolve) => {
+      const done = () => resolve();
+      ctx.room.once("disconnected", done);
+      ctx.addShutdownCallback(async () => {
+        done();
+      });
+    });
   },
 });
 
@@ -88,6 +101,38 @@ function parseMetadata(raw: string | undefined): Record<string, unknown> {
   } catch {
     return {};
   }
+}
+
+function stringifyMessageContent(content: unknown): string {
+  if (typeof content === "string") return content.trim();
+  if (Array.isArray(content)) {
+    const joined = content
+      .map((item) => {
+        if (typeof item === "string") return item;
+        if (item && typeof item === "object" && "text" in item) {
+          const text = (item as { text?: unknown }).text;
+          return typeof text === "string" ? text : "";
+        }
+        return "";
+      })
+      .join(" ")
+      .trim();
+    return joined;
+  }
+  return "";
+}
+
+function asString(value: unknown, fallback: string): string {
+  return typeof value === "string" && value.length > 0 ? value : fallback;
+}
+
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string");
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 }
 
 function getLearnerMetadata(ctx: { room: { metadata?: string; remoteParticipants?: unknown } }): Record<string, unknown> {

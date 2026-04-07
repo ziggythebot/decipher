@@ -3,6 +3,8 @@ import { FRENCH_DECONSTRUCTION_DOZEN } from "@/data/deconstruction-dozen";
 import { getOrCreateSessionUser } from "@/lib/session-user";
 import { CompleteButton } from "./CompleteButton";
 
+export const dynamic = "force-dynamic";
+
 export default async function DeconstructPage() {
   const user = await getOrCreateSessionUser();
 

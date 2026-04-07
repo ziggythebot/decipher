@@ -2,6 +2,8 @@ import { db } from "@/lib/db";
 import { getOrCreateSessionUser } from "@/lib/session-user";
 import { VocabSessionClient } from "./VocabSessionClient";
 
+export const dynamic = "force-dynamic";
+
 export default async function VocabPage() {
   const user = await getOrCreateSessionUser();
 

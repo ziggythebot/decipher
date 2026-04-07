@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { levelFromTotalXp, levelTitle, xpForLevel, XP, LEVEL_TITLES } from "@/lib/xp";
+import { levelFromTotalXp, levelTitle, xpForLevel, XP } from "@/lib/xp";
 
 describe("levelFromTotalXp", () => {
   it("returns 1 for 0 XP", () => {
@@ -49,7 +49,7 @@ describe("levelTitle", () => {
 
 describe("XP constants", () => {
   it("all XP values are positive numbers", () => {
-    for (const [key, value] of Object.entries(XP)) {
+    for (const [, value] of Object.entries(XP)) {
       expect(typeof value).toBe("number");
       expect(value).toBeGreaterThan(0);
     }

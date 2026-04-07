@@ -4,8 +4,12 @@ import { levelTitle } from "@/lib/xp";
 import type { CategoryCounts, ErrorCategory } from "@/lib/speak/analytics";
 import { getOrCreateSessionUser } from "@/lib/session-user";
 
+export const dynamic = "force-dynamic";
+
 export default async function ProgressPage() {
   const user = await getOrCreateSessionUser();
+  const now = new Date();
+  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
   const [wordsLearned, sessions, knownVocab, recentSessions, streakEntries] = await Promise.all([
     db.userVocabulary.count({ where: { userId: user.id, state: { gt: 0 } } }),
@@ -32,7 +36,7 @@ export default async function ProgressPage() {
       },
     }),
     db.streakEntry.findMany({
-      where: { userId: user.id, date: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } },
+      where: { userId: user.id, date: { gte: thirtyDaysAgo } },
       orderBy: { date: "asc" },
     }),
   ]);
@@ -133,7 +137,7 @@ export default async function ProgressPage() {
               <span className="text-2xl font-black">{user.streakDays}</span>
               <span className="text-sm text-zinc-400">{user.streakDays === 1 ? "day" : "days"} current streak</span>
             </div>
-            <StreakGrid entries={streakEntries.map((e) => e.date)} />
+            <StreakGrid entries={streakEntries.map((e) => e.date)} referenceDate={now} />
             <p className="mt-2 text-xs text-zinc-600">Last 30 days</p>
           </div>
         </section>
@@ -258,7 +262,7 @@ function TrendChip({ label, value }: { label: string; value: number }) {
   );
 }
 
-function StreakGrid({ entries }: { entries: Date[] }) {
+function StreakGrid({ entries, referenceDate }: { entries: Date[]; referenceDate: Date }) {
   // Build a set of date strings (YYYY-MM-DD) that have activity
   const activeDays = new Set(
     entries.map((d) => {
@@ -269,8 +273,9 @@ function StreakGrid({ entries }: { entries: Date[] }) {
 
   // Build the last 30 days starting from 29 days ago to today
   const days: { key: string; active: boolean }[] = [];
+  const referenceMs = referenceDate.getTime();
   for (let i = 29; i >= 0; i--) {
-    const d = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
+    const d = new Date(referenceMs - i * 24 * 60 * 60 * 1000);
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     days.push({ key, active: activeDays.has(key) });
   }
