@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { AgentDispatchClient } from "livekit-server-sdk";
 import { db } from "@/lib/db";
 import { SPEAK_SCENARIO_SLUGS } from "@/lib/speak/scenarios";
 import { createLiveKitToken } from "@/lib/livekit/token";
@@ -79,8 +80,9 @@ export async function POST(request: Request) {
   const livekitUrl = process.env.LIVEKIT_URL ?? null;
   const livekitApiKey = process.env.LIVEKIT_API_KEY ?? null;
   const livekitApiSecret = process.env.LIVEKIT_API_SECRET ?? null;
+  const livekitAgentName = process.env.LIVEKIT_AGENT_NAME ?? "decipher-agent";
 
-  let livekit: { url: string; token: string; roomName: string } | null = null;
+  let livekit: { url: string; token: string; roomName: string; dispatchCreated: boolean } | null = null;
   if (livekitUrl && livekitApiKey && livekitApiSecret) {
     const roomName = `decipher-${user.id}-${session.id}`;
     const identity = `learner-${user.id}`;
@@ -116,10 +118,23 @@ export async function POST(request: Request) {
       ttlSeconds: 60 * 30,
     });
 
+    let dispatchCreated = false;
+    try {
+      const httpHost = livekitUrl.replace(/^wss:\/\//, "https://").replace(/^ws:\/\//, "http://");
+      const dispatchClient = new AgentDispatchClient(httpHost, livekitApiKey, livekitApiSecret);
+      await dispatchClient.createDispatch(roomName, livekitAgentName, {
+        metadata: participantMetadata,
+      });
+      dispatchCreated = true;
+    } catch {
+      dispatchCreated = false;
+    }
+
     livekit = {
       url: livekitUrl,
       token,
       roomName,
+      dispatchCreated,
     };
   }
 

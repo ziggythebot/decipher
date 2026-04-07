@@ -220,4 +220,9 @@ Flow: Welcome → Menu options → Order → Dietary needs → Enjoyment check.
 Key vocabulary: menu, plat, entrée, dessert, recommander, végétarien, délicieux.`,
 };
 
-cli.runApp(new WorkerOptions({ agent: fileURLToPath(import.meta.url) }));
+cli.runApp(
+  new WorkerOptions({
+    agent: fileURLToPath(import.meta.url),
+    agentName: process.env.LIVEKIT_AGENT_NAME ?? "decipher-agent",
+  })
+);

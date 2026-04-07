@@ -32,6 +32,7 @@ type ActiveSession = {
     url: string;
     token: string;
     roomName: string;
+    dispatchCreated?: boolean;
   } | null;
 };
 
@@ -119,7 +120,7 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
 
     const data = (await response.json()) as {
       session: { id: string; createdAt: string; scenarioType: string | null };
-      livekit: { url: string; token: string; roomName: string } | null;
+      livekit: { url: string; token: string; roomName: string; dispatchCreated?: boolean } | null;
     };
 
     setActive({
@@ -130,7 +131,11 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
     });
     setElapsed(0);
     setLoading(false);
-    setMessage("Session started. Voice room wiring is the next step, but timing/progress is now tracked.");
+    setMessage(
+      data.livekit?.dispatchCreated
+        ? "Session started. Connecting audio now should bring the tutor in."
+        : "Session started. Audio room is up, but no agent worker was dispatched."
+    );
   }
 
   async function connectAudio() {
@@ -163,7 +168,11 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
       await nextRoom.localParticipant.setMicrophoneEnabled(true);
       setRoom(nextRoom);
       setConnected(true);
-      setMessage("Connected to voice room.");
+      setMessage(
+        active.livekit.dispatchCreated
+          ? "Connected to voice room. Waiting for tutor audio..."
+          : "Connected, but no tutor worker is online yet."
+      );
     } catch {
       setMessage("Could not connect to LiveKit room. Check LIVEKIT env vars and server config.");
     } finally {
