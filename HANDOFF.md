@@ -2,8 +2,9 @@
 
 ## Repo State
 - Branch: `main`
-- Latest commit at handoff: `fa1cc76`
+- Latest commit at handoff: `adf4744`
 - Status: pushed to `origin/main`
+- Working tree: clean
 
 ## Source of Truth Plan
 - Implementation plan: `IMPLEMENTATION_PLAN.md`
@@ -77,23 +78,50 @@
   - average accuracy
   - potential unknown-word sample
 
+### Auth mothballed + local DB workflow
+- Replaced Clerk runtime auth usage in app routes and APIs with local session user helper:
+  - `src/lib/session-user.ts`
+  - `src/app/dashboard/page.tsx`
+  - `src/app/learn/vocab/page.tsx`
+  - `src/app/learn/deconstruct/page.tsx`
+  - `src/app/speak/page.tsx`
+  - `src/app/progress/page.tsx`
+  - `src/app/api/vocab/rate/route.ts`
+  - `src/app/api/grammar/complete/route.ts`
+  - `src/app/api/speak/session/start/route.ts`
+  - `src/app/api/speak/session/event/route.ts`
+  - `src/app/api/speak/session/end/route.ts`
+- Added local Postgres compose config:
+  - `docker-compose.dev.yml`
+- Added Prisma 7 config entrypoint and updated schema datasource block:
+  - `prisma.config.ts`
+  - `prisma/schema.prisma`
+- Updated docs/scripts for local dev session mode and Docker DB workflow:
+  - `README.md`
+  - `package.json`
+
 ## Important Merged PRs
 - PR #1: web MVP loops + scaffolding merged to `main`
 - PR #2: learner metadata wiring to agent merged to `main`
 
 ## Current Gaps / Next Work (Priority)
-1. Replace lightweight scheduler with full `ts-fsrs` integration.
-2. Harden live room orchestration (reconnects, edge cases, session cleanup guarantees).
-3. Improve transcript analytics:
+1. Enable Docker daemon locally and run DB bootstrapping:
+   - `npm run db:up`
+   - `npm run db:migrate`
+   - `npm run db:seed`
+2. Replace lightweight scheduler with full `ts-fsrs` integration.
+3. Harden live room orchestration (reconnects, edge cases, session cleanup guarantees).
+4. Improve transcript analytics:
    - error taxonomy (grammar/vocab/pronunciation/hesitation)
    - corrected-form extraction
    - trend views on `/progress`
-4. Add automated coverage for critical loops:
+5. Add automated coverage for critical loops:
    - vocab rating -> review scheduling -> XP/achievements
    - speak start/end/event -> transcript + analytics + XP
-5. Add production readiness checks (rate limits, payload limits, audit logging, retries).
+6. Add production readiness checks (rate limits, payload limits, audit logging, retries).
 
 ## Notes for Next Agent
-- Worktree is currently clean after this handoff commit.
+- No secrets are committed; `.env` remains local-only.
 - If picking up `ts-fsrs`, start by isolating scheduler logic currently in `src/lib/srs/rating.ts`.
 - If picking up analytics, extend `errorsLogged` schema shape consistently and keep backward compatibility with existing array payloads.
+- `@clerk/nextjs` still exists in `package.json` but is currently unused at runtime.

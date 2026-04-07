@@ -3,6 +3,19 @@
 ## Objective
 Build a production-ready web MVP of Decipher first, while keeping architecture portable to a macOS desktop app (Tauri wrapper) with minimal rework.
 
+## Current Status (April 7, 2026)
+- Repo branch: `main`
+- Latest shipped commit: `adf4744`
+- Completed:
+1. Web MVP loop (dashboard, vocab, deconstruct, speak, progress) is wired end-to-end.
+2. Vocab rating API persists scheduling, XP/level/streak, and achievements.
+3. Speaking start/event/end APIs persist session data and transcript-derived analytics.
+4. LiveKit token minting + participant metadata handoff to agent is implemented.
+5. Auth is currently mothballed in favor of local dev session identity (`src/lib/session-user.ts`).
+6. Local DB workflow is defined (`docker-compose.dev.yml`, `prisma.config.ts`, migrate/seed scripts).
+- Active blocker:
+1. Docker daemon must be running locally before `npm run db:up` works.
+
 ## Product Scope
 ### Primary user outcome
 A learner can complete a full loop in one session:
@@ -36,7 +49,7 @@ Keep framework-specific code at the edges.
 - Shared code: all domain logic, validation, view components, client state
 
 ## Delivery Plan
-### Phase 0 - Stabilize Current Repo (Week 1)
+### Phase 0 - Stabilize Current Repo (Week 1) [Done]
 ### Goals
 - Align codebase with README claims
 - Remove broken UX paths and dead links
@@ -52,7 +65,7 @@ Keep framework-specific code at the edges.
 - Home page reflects product and onboarding flow
 - README accurately maps to current code
 
-### Phase 1 - Learning Loop MVP (Weeks 2-3)
+### Phase 1 - Learning Loop MVP (Weeks 2-3) [Done]
 ### Goals
 - Make vocab sessions fully functional and persistent
 - Deliver end-to-end daily study flow
@@ -69,7 +82,7 @@ Keep framework-specific code at the edges.
 - Due queue changes according to FSRS
 - XP/level/streak values are deterministic and test-covered
 
-### Phase 2 - Guided Speaking MVP (Weeks 4-5)
+### Phase 2 - Guided Speaking MVP (Weeks 4-5) [Done]
 ### Goals
 - Deliver reliable voice practice session with transcript capture
 
@@ -85,7 +98,7 @@ Keep framework-specific code at the edges.
 - Transcript and XP appear in progress/dashboard
 - Session failures are surfaced with retry-safe UX
 
-### Phase 3 - Progress, Achievements, and Quality (Week 6)
+### Phase 3 - Progress, Achievements, and Quality (Week 6) [Partially Done]
 ### Goals
 - Make retention loop legible and trustworthy
 
@@ -100,7 +113,7 @@ Keep framework-specific code at the edges.
 - Achievements unlock once and display correctly
 - Core user loop has passing smoke test coverage
 
-### Phase 4 - Desktop Readiness Refactor (Week 7)
+### Phase 4 - Desktop Readiness Refactor (Week 7) [Not Started]
 ### Goals
 - Prepare code for web + macOS reuse
 
@@ -114,7 +127,7 @@ Keep framework-specific code at the edges.
 - Shared logic imported from packages, not app-local ad hoc modules
 - Domain tests run without Next.js runtime
 
-### Phase 5 - macOS Wrapper (Weeks 8-9)
+### Phase 5 - macOS Wrapper (Weeks 8-9) [Not Started]
 ### Goals
 - Ship internal macOS alpha using existing backend
 
@@ -150,8 +163,14 @@ Keep framework-specific code at the edges.
 - Learner can always identify next action from dashboard
 
 ## Immediate Next Actions (This Repo)
-1. Implement `/api/vocab/rate` and FSRS update pipeline.
-2. Build `/speak` and `/progress` minimal pages with real data wiring.
-3. Replace default landing page and add onboarding path.
-4. Add integration tests for rating -> due date -> XP updates.
-5. Create issue tracker labels by phase (`phase-0` ... `phase-5`) and file tasks.
+1. Run local DB bootstrap once Docker Desktop is running:
+   - `npm run db:up`
+   - `npm run db:migrate`
+   - `npm run db:seed`
+2. Add integration tests for:
+   - vocab rating -> due date/scheduler -> XP/achievements
+   - speak start/event/end -> transcript analytics persistence
+3. Replace current lightweight review scheduler logic with full `ts-fsrs` scheduling behavior.
+4. Harden live voice session lifecycle (room reconnect, duplicate event handling, idempotent close).
+5. Start Phase 4 extraction:
+   - move domain logic to shared package boundaries (`core`, `contracts`) to prep Tauri wrapper.
