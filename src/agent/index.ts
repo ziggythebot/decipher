@@ -253,6 +253,6 @@ cli.runApp(
   new WorkerOptions({
     agent: fileURLToPath(import.meta.url),
     agentName: process.env.LIVEKIT_AGENT_NAME ?? "decipher-agent",
-    initializeProcessTimeout: 30,
+    initializeProcessTimeout: 120000,
   })
 );
