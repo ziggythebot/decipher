@@ -5,41 +5,69 @@ import type { CategoryCounts, ErrorCategory } from "@/lib/speak/analytics";
 import { getOrCreateSessionUser } from "@/lib/session-user";
 
 export const dynamic = "force-dynamic";
+const VOICE_ONLY_MODE = process.env.VOICE_ONLY_MODE === "1";
 
 export default async function ProgressPage() {
   const user = await getOrCreateSessionUser();
   const now = new Date();
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-  const [wordsLearned, sessions, knownVocab, recentSessions, streakEntries] = await Promise.all([
-    db.userVocabulary.count({ where: { userId: user.id, state: { gt: 0 } } }),
-    db.conversationSession.count({ where: { userId: user.id } }),
-    db.userVocabulary.findMany({
-      where: { userId: user.id, state: { gt: 0 } },
-      include: { word: { select: { word: true } } },
-      take: 2000,
-    }),
-    db.conversationSession.findMany({
-      where: { userId: user.id, duration: { not: null } },
-      orderBy: { createdAt: "desc" },
-      take: 10,
-      select: {
-        id: true,
-        createdAt: true,
-        scenarioType: true,
-        duration: true,
-        accuracyPct: true,
-        xpEarned: true,
-        wordsEncountered: true,
-        errorsLogged: true,
-        transcript: true,
-      },
-    }),
-    db.streakEntry.findMany({
-      where: { userId: user.id, date: { gte: thirtyDaysAgo } },
-      orderBy: { date: "asc" },
-    }),
-  ]);
+  let wordsLearned = 0;
+  let sessions = 0;
+  let knownVocab: Array<{ word: { word: string } }> = [];
+  let recentSessions: Array<{
+    id: string;
+    createdAt: Date;
+    scenarioType: string | null;
+    duration: number | null;
+    accuracyPct: number | null;
+    xpEarned: number;
+    wordsEncountered: string[];
+    errorsLogged: unknown;
+    transcript: string | null;
+  }> = [];
+  let streakEntries: Array<{ date: Date }> = [];
+
+  if (!VOICE_ONLY_MODE) {
+    try {
+      [wordsLearned, sessions, knownVocab, recentSessions, streakEntries] = await Promise.all([
+        db.userVocabulary.count({ where: { userId: user.id, state: { gt: 0 } } }),
+        db.conversationSession.count({ where: { userId: user.id } }),
+        db.userVocabulary.findMany({
+          where: { userId: user.id, state: { gt: 0 } },
+          include: { word: { select: { word: true } } },
+          take: 2000,
+        }),
+        db.conversationSession.findMany({
+          where: { userId: user.id, duration: { not: null } },
+          orderBy: { createdAt: "desc" },
+          take: 10,
+          select: {
+            id: true,
+            createdAt: true,
+            scenarioType: true,
+            duration: true,
+            accuracyPct: true,
+            xpEarned: true,
+            wordsEncountered: true,
+            errorsLogged: true,
+            transcript: true,
+          },
+        }),
+        db.streakEntry.findMany({
+          where: { userId: user.id, date: { gte: thirtyDaysAgo } },
+          orderBy: { date: "asc" },
+          select: { date: true },
+        }),
+      ]);
+    } catch {
+      wordsLearned = 0;
+      sessions = 0;
+      knownVocab = [];
+      recentSessions = [];
+      streakEntries = [];
+    }
+  }
 
   const knownWordSet = new Set(knownVocab.map((entry) => entry.word.word.toLowerCase()));
   const totalErrors = recentSessions.reduce(
