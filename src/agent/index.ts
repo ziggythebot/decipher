@@ -110,16 +110,39 @@ export default defineAgent({
     let awaitingManualCommit = false;
     let sawTranscriptThisTurn = false;
     let sawFinalTranscriptThisTurn = false;
+    let turnCounter = 0;
+    let currentTurnId = 0;
+
+    function publishData(payload: Record<string, unknown>) {
+      void ctx.room.localParticipant?.publishData(
+        new TextEncoder().encode(JSON.stringify(payload)),
+        { reliable: true }
+      );
+    }
+
+    function publishDebugStage(stage: string, extra?: Record<string, unknown>) {
+      publishData({
+        type: "debug_stage",
+        stage,
+        turnId: currentTurnId || null,
+        ts: Date.now(),
+        ...(extra ?? {}),
+      });
+    }
+
+    function commitUserTurnWithDebug(reason: string) {
+      publishDebugStage("turn_commit_requested", { reason });
+      session.commitUserTurn();
+      publishDebugStage("turn_commit_sent", { reason });
+    }
 
     function publishNoAudioCaptured() {
       const payload = {
         type: "agent_error",
         message: "No speech detected. Hold to Talk, speak, then release.",
       };
-      void ctx.room.localParticipant?.publishData(
-        new TextEncoder().encode(JSON.stringify(payload)),
-        { reliable: true }
-      );
+      publishData(payload);
+      publishDebugStage("turn_no_speech");
     }
 
     session.on(voice.AgentSessionEventTypes.ConversationItemAdded, (ev) => {
@@ -134,10 +157,10 @@ export default defineAgent({
           ? { type: "user_utterance", text }
           : { type: "agent_utterance", text };
 
-      void ctx.room.localParticipant?.publishData(
-        new TextEncoder().encode(JSON.stringify(payload)),
-        { reliable: true }
-      );
+      publishData(payload);
+      publishDebugStage(role === "user" ? "conversation_user_item_added" : "conversation_agent_item_added", {
+        textPreview: text.slice(0, 80),
+      });
     });
 
     session.on(voice.AgentSessionEventTypes.UserInputTranscribed, (ev) => {
@@ -151,10 +174,10 @@ export default defineAgent({
         language: ev.language,
         isFinal: ev.isFinal,
       };
-      void ctx.room.localParticipant?.publishData(
-        new TextEncoder().encode(JSON.stringify(payload)),
-        { reliable: true }
-      );
+      publishData(payload);
+      publishDebugStage(ev.isFinal ? "stt_final" : "stt_interim", {
+        textPreview: trimmed.slice(0, 80),
+      });
 
       if (ev.isFinal && awaitingManualCommit) {
         sawFinalTranscriptThisTurn = true;
@@ -162,7 +185,7 @@ export default defineAgent({
           clearTimeout(pendingCommitTimer);
           pendingCommitTimer = null;
         }
-        session.commitUserTurn();
+        commitUserTurnWithDebug("stt_final");
         awaitingManualCommit = false;
       }
     });
@@ -176,10 +199,8 @@ export default defineAgent({
         type: "agent_error",
         message: errorMessage,
       };
-      void ctx.room.localParticipant?.publishData(
-        new TextEncoder().encode(JSON.stringify(payload)),
-        { reliable: true }
-      );
+      publishData(payload);
+      publishDebugStage("agent_error", { message: errorMessage.slice(0, 140) });
     });
 
     session.on(voice.AgentSessionEventTypes.AgentStateChanged, (ev) => {
@@ -187,10 +208,15 @@ export default defineAgent({
         type: "agent_state",
         state: ev.newState,
       };
-      void ctx.room.localParticipant?.publishData(
-        new TextEncoder().encode(JSON.stringify(payload)),
-        { reliable: true }
-      );
+      publishData(payload);
+      publishDebugStage("agent_state", { state: ev.newState });
+    });
+
+    session.on(voice.AgentSessionEventTypes.SpeechCreated, (ev) => {
+      publishDebugStage("speech_created", {
+        source: ev.source,
+        userInitiated: ev.userInitiated,
+      });
     });
 
     ctx.room.on("dataReceived", (payload) => {
@@ -203,12 +229,17 @@ export default defineAgent({
           micMutedBeforeRelease?: boolean | null;
         };
         if (parsed.type === "ptt_press") {
+          currentTurnId = ++turnCounter;
           console.info(
             JSON.stringify({
               event: "ptt_press",
+              turnId: currentTurnId,
               hasMicPublication: parsed.hasMicPublication ?? null,
             })
           );
+          publishDebugStage("ptt_press_received", {
+            hasMicPublication: parsed.hasMicPublication ?? null,
+          });
           if (pendingCommitTimer) {
             clearTimeout(pendingCommitTimer);
             pendingCommitTimer = null;
@@ -222,11 +253,17 @@ export default defineAgent({
           console.info(
             JSON.stringify({
               event: "ptt_release",
+              turnId: currentTurnId,
               holdMs: parsed.holdMs ?? null,
               hasMicPublication: parsed.hasMicPublication ?? null,
               micMutedBeforeRelease: parsed.micMutedBeforeRelease ?? null,
             })
           );
+          publishDebugStage("ptt_release_received", {
+            holdMs: parsed.holdMs ?? null,
+            hasMicPublication: parsed.hasMicPublication ?? null,
+            micMutedBeforeRelease: parsed.micMutedBeforeRelease ?? null,
+          });
           if (pendingCommitTimer) {
             clearTimeout(pendingCommitTimer);
           }
@@ -234,7 +271,7 @@ export default defineAgent({
           pendingCommitTimer = setTimeout(() => {
             if (awaitingManualCommit) {
               if (sawFinalTranscriptThisTurn || sawTranscriptThisTurn) {
-                session.commitUserTurn();
+                commitUserTurnWithDebug("release_timer");
               } else {
                 publishNoAudioCaptured();
               }
@@ -255,6 +292,9 @@ export default defineAgent({
         participantIdentity,
         closeOnDisconnect: true,
       },
+    });
+    publishDebugStage("session_started", {
+      participantIdentity: participantIdentity ?? null,
     });
     session.say(
       "Bonjour! On commence. Tu veux commander un cafe maintenant ?",

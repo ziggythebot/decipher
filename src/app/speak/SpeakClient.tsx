@@ -31,6 +31,13 @@ type Props = {
   recentSessions: RecentSession[];
 };
 
+type DebugStageEvent = {
+  stage: string;
+  turnId: number | null;
+  ts: number;
+  detail: string | null;
+};
+
 type ActiveSession = {
   id: string;
   startedAt: number;
@@ -83,6 +90,7 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
   const [pttActive, setPttActive] = useState(false);
   const [lastHeard, setLastHeard] = useState<string | null>(null);
   const [micDebug, setMicDebug] = useState<string | null>(null);
+  const [debugStages, setDebugStages] = useState<DebugStageEvent[]>([]);
   const audioElementsRef = useRef<Map<string, HTMLAudioElement>>(new Map());
   const pttStartedAtRef = useRef<number | null>(null);
 
@@ -259,6 +267,7 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
       livekit: data.livekit,
     });
     setLastHeard(null);
+    setDebugStages([]);
     setElapsed(0);
     setLoading(false);
     setMessage(
@@ -343,6 +352,26 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
           }
           if (parsed.type === "user_transcribed" && typeof parsed.text === "string") {
             setLastHeard(parsed.text);
+          }
+          if (parsed.type === "debug_stage" && typeof parsed.stage === "string") {
+            const detail =
+              typeof parsed.textPreview === "string"
+                ? parsed.textPreview
+                : typeof parsed.reason === "string"
+                  ? parsed.reason
+                  : typeof parsed.state === "string"
+                    ? parsed.state
+                    : null;
+            const event: DebugStageEvent = {
+              stage: parsed.stage,
+              turnId: typeof parsed.turnId === "number" ? parsed.turnId : null,
+              ts: typeof parsed.ts === "number" ? parsed.ts : Date.now(),
+              detail,
+            };
+            setDebugStages((previous) => {
+              const next = [...previous, event];
+              return next.length > 24 ? next.slice(next.length - 24) : next;
+            });
           }
           if (parsed.type === "agent_error" && typeof parsed.message === "string") {
             setMessage(`Tutor error: ${parsed.message}`);
@@ -549,6 +578,23 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
           <p className="mt-3 text-xs text-amber-300">
             LIVEKIT env vars are missing; session timing works but audio room connection is unavailable.
           </p>
+        )}
+      </div>
+
+      <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-900 p-3">
+        <p className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Debug Timeline</p>
+        {debugStages.length === 0 ? (
+          <p className="mt-2 text-xs text-zinc-500">No stage events yet.</p>
+        ) : (
+          <div className="mt-2 max-h-44 space-y-1 overflow-y-auto">
+            {debugStages.map((event, index) => (
+              <p key={`${event.ts}-${event.stage}-${index}`} className="text-xs text-zinc-300">
+                {new Date(event.ts).toLocaleTimeString()} •
+                {event.turnId ? ` turn ${event.turnId} •` : ""} {event.stage}
+                {event.detail ? ` • ${event.detail}` : ""}
+              </p>
+            ))}
+          </div>
         )}
       </div>
 
