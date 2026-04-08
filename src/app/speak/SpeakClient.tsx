@@ -43,6 +43,16 @@ type ActiveSession = {
   } | null;
 };
 
+type MicPublication = TrackPublication & {
+  isMuted?: boolean;
+  mute?: () => Promise<void> | void;
+  unmute?: () => Promise<void> | void;
+  track?: {
+    mute?: () => Promise<void> | void;
+    unmute?: () => Promise<void> | void;
+  } | null;
+};
+
 function formatElapsed(totalSeconds: number): string {
   const m = Math.floor(totalSeconds / 60)
     .toString()
@@ -75,6 +85,42 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
   const [micDebug, setMicDebug] = useState<string | null>(null);
   const audioElementsRef = useRef<Map<string, HTMLAudioElement>>(new Map());
   const pttStartedAtRef = useRef<number | null>(null);
+
+  function getMicPublication(targetRoom: Room): MicPublication | null {
+    const publication = Array.from(targetRoom.localParticipant.trackPublications.values()).find(
+      (entry) => entry.source === Track.Source.Microphone
+    );
+    return (publication as MicPublication | undefined) ?? null;
+  }
+
+  async function setMicMuted(targetRoom: Room, muted: boolean): Promise<boolean> {
+    const publication = getMicPublication(targetRoom);
+    if (!publication) return false;
+
+    if (muted) {
+      if (publication.isMuted) return true;
+      if (typeof publication.mute === "function") {
+        await publication.mute();
+        return true;
+      }
+      if (publication.track && typeof publication.track.mute === "function") {
+        await publication.track.mute();
+        return true;
+      }
+      return false;
+    }
+
+    if (!publication.isMuted) return true;
+    if (typeof publication.unmute === "function") {
+      await publication.unmute();
+      return true;
+    }
+    if (publication.track && typeof publication.track.unmute === "function") {
+      await publication.track.unmute();
+      return true;
+    }
+    return false;
+  }
 
   function clearAttachedAudio() {
     for (const element of audioElementsRef.current.values()) {
@@ -288,13 +334,18 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
         }
       });
       await nextRoom.connect(active.livekit.url, active.livekit.token);
-      await nextRoom.localParticipant.setMicrophoneEnabled(false);
+      await nextRoom.localParticipant.setMicrophoneEnabled(true);
+      const micPublished = await setMicMuted(nextRoom, true);
+      setMicDebug(
+        micPublished
+          ? "Mic ready (muted). Hold to Talk to unmute and send."
+          : "Mic could not be muted for push-to-talk."
+      );
       for (const participant of nextRoom.remoteParticipants.values()) {
         attachParticipantAudio(participant);
       }
       setRoom(nextRoom);
       setConnected(true);
-      setMicDebug(null);
       if (!active.livekit.dispatchCreated) {
         setMessage("Connected, but no tutor worker is online yet.");
       } else {
@@ -308,6 +359,11 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
   }
 
   function disconnectAudio() {
+    if (room) {
+      void room.localParticipant.setMicrophoneEnabled(false).catch(() => {
+        // Ignore shutdown race errors if room already tearing down.
+      });
+    }
     room?.disconnect();
     setRoom(null);
     setConnected(false);
@@ -320,15 +376,21 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
     if (!room || !connected || pttActive) return;
     try {
       pttStartedAtRef.current = Date.now();
-      const micPublication = Array.from(room.localParticipant.trackPublications.values()).find(
-        (publication) => publication.source === Track.Source.Microphone
-      );
-      await room.localParticipant.setMicrophoneEnabled(true);
+      let micPublication = getMicPublication(room);
+      if (!micPublication) {
+        await room.localParticipant.setMicrophoneEnabled(true);
+        micPublication = getMicPublication(room);
+      }
+      if (!micPublication) {
+        setMessage("Microphone track was not published. Reconnect audio and retry.");
+        return;
+      }
+      await setMicMuted(room, false);
       await room.localParticipant.publishData(
         new TextEncoder().encode(
           JSON.stringify({
             type: "ptt_press",
-            hasMicPublication: !!micPublication,
+            hasMicPublication: true,
           })
         ),
         { reliable: true }
@@ -344,17 +406,16 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
     if (!room || !connected || !pttActive) return;
     try {
       const holdMs = pttStartedAtRef.current ? Date.now() - pttStartedAtRef.current : null;
-      const micPublication = Array.from(room.localParticipant.trackPublications.values()).find(
-        (publication) => publication.source === Track.Source.Microphone
-      );
-      await room.localParticipant.setMicrophoneEnabled(false);
+      const micPublication = getMicPublication(room);
+      const micMutedBeforeRelease = micPublication?.isMuted ?? null;
+      await setMicMuted(room, true);
       await room.localParticipant.publishData(
         new TextEncoder().encode(
           JSON.stringify({
             type: "ptt_release",
             holdMs,
             hasMicPublication: !!micPublication,
-            micMutedBeforeRelease: micPublication?.isMuted ?? null,
+            micMutedBeforeRelease,
           })
         ),
         { reliable: true }
