@@ -21,7 +21,17 @@ const noOpTool = llm.tool({
 export default defineAgent({
   entry: async (ctx) => {
     await ctx.connect(undefined, AutoSubscribe.AUDIO_ONLY);
-    await ctx.waitForParticipant();
+
+    if (getRemoteParticipantCount(ctx) === 0) {
+      try {
+        await Promise.race([
+          ctx.waitForParticipant(),
+          new Promise((resolve) => setTimeout(resolve, 5000)),
+        ]);
+      } catch {
+        // Continue even if participant wait fails; room metadata may still be usable.
+      }
+    }
 
     const metadata = getLearnerMetadata(ctx);
     const {
@@ -121,6 +131,11 @@ export default defineAgent({
     });
   },
 });
+
+function getRemoteParticipantCount(ctx: { room: { remoteParticipants?: unknown } }): number {
+  const map = ctx.room.remoteParticipants as Map<string, unknown> | undefined;
+  return map ? map.size : 0;
+}
 
 function parseMetadata(raw: string | undefined): Record<string, unknown> {
   if (!raw) return {};
