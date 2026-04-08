@@ -54,6 +54,16 @@ type ActiveSession = {
 
 type MicPublication = TrackPublication & {
   isMuted?: boolean;
+  track?: Track | null;
+  audioTrack?: {
+    mute?: () => Promise<void>;
+    unmute?: () => Promise<void>;
+  } | null;
+};
+
+type MuteCapableTrack = {
+  mute: () => Promise<void>;
+  unmute: () => Promise<void>;
 };
 
 function formatElapsed(totalSeconds: number): string {
@@ -96,6 +106,25 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
       (entry) => entry.source === Track.Source.Microphone
     );
     return (publication as MicPublication | undefined) ?? null;
+  }
+
+  function getMuteCapableMicTrack(publication: MicPublication | null): MuteCapableTrack | null {
+    const candidate = publication?.audioTrack ?? publication?.track ?? null;
+    if (!candidate) return null;
+    if (typeof candidate.mute !== "function" || typeof candidate.unmute !== "function") return null;
+    return candidate as MuteCapableTrack;
+  }
+
+  async function setMicTrackMuted(targetRoom: Room, muted: boolean): Promise<boolean> {
+    const publication = getMicPublication(targetRoom);
+    const track = getMuteCapableMicTrack(publication);
+    if (!track) return false;
+    if (muted) {
+      await track.mute();
+    } else {
+      await track.unmute();
+    }
+    return true;
   }
 
   async function waitForMicPublication(targetRoom: Room, timeoutMs = 2500): Promise<boolean> {
@@ -376,6 +405,7 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
       if (!micPublished) {
         throw new Error("Microphone track was not published after fallback publish attempt.");
       }
+      await setMicTrackMuted(nextRoom, true);
       const micPublication = getMicPublication(nextRoom);
       await nextRoom.localParticipant.publishData(
         new TextEncoder().encode(
@@ -436,6 +466,11 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
         setMessage("Microphone track was not published. Reconnect audio and retry.");
         return;
       }
+      const unmuted = await setMicTrackMuted(room, false);
+      if (!unmuted) {
+        setMessage("Microphone track is not ready. Reconnect audio and retry.");
+        return;
+      }
       setMicDebug("Listening... speak while holding.");
       await room.localParticipant.publishData(
         new TextEncoder().encode(
@@ -458,6 +493,7 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
     try {
       const holdMs = pttStartedAtRef.current ? Date.now() - pttStartedAtRef.current : null;
       const micPublication = getMicPublication(room);
+      const muted = await setMicTrackMuted(room, true);
       setMicDebug("Turn sent. Waiting for transcript...");
       await room.localParticipant.publishData(
         new TextEncoder().encode(
@@ -465,7 +501,7 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
             type: "ptt_release",
             holdMs,
             hasMicPublication: !!micPublication,
-            micMutedBeforeRelease: micPublication?.isMuted ?? null,
+            micMutedBeforeRelease: muted || micPublication?.isMuted || null,
           })
         ),
         { reliable: true }
