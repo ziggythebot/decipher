@@ -71,7 +71,6 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
   const [connecting, setConnecting] = useState(false);
   const [connected, setConnected] = useState(false);
   const [pttActive, setPttActive] = useState(false);
-  const [lastHeard, setLastHeard] = useState<string | null>(null);
   const audioElementsRef = useRef<Map<string, HTMLAudioElement>>(new Map());
   const manualDisconnectRef = useRef(false);
   const reconnectAttemptsRef = useRef(0);
@@ -260,23 +259,18 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
       nextRoom.on(RoomEvent.DataReceived, (payload) => {
         try {
           const text = new TextDecoder().decode(payload);
-          const parsed = JSON.parse(text) as { type?: string; text?: string; language?: string | null };
+          const parsed = JSON.parse(text) as { type?: string; text?: string };
           if (
             (parsed.type === "user_utterance" || parsed.type === "agent_utterance") &&
             typeof parsed.text === "string"
           ) {
             void persistSessionEvent(sessionId, parsed.type, parsed.text);
           }
-          if (parsed.type === "user_transcribed" && typeof parsed.text === "string") {
-            setLastHeard(parsed.text);
-          }
         } catch {
           // Ignore malformed payloads from remote participants.
         }
       });
       await nextRoom.connect(active.livekit.url, active.livekit.token);
-      // Pre-warm microphone publication so first push-to-talk utterance is not dropped during track setup.
-      await nextRoom.localParticipant.setMicrophoneEnabled(true);
       await nextRoom.localParticipant.setMicrophoneEnabled(false);
       for (const participant of nextRoom.remoteParticipants.values()) {
         attachParticipantAudio(participant);
@@ -290,7 +284,6 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
         setMessage("Connected to voice room. Hold-to-talk is ready.");
         syncTutorAudioState();
       }
-      setLastHeard(null);
     } catch {
       setMessage("Could not connect microphone/audio. Check browser mic permissions and try again.");
     } finally {
@@ -387,11 +380,6 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
           </button>
         </div>
         {message && <p className="mt-3 text-xs text-zinc-300">{message}</p>}
-        {lastHeard && (
-          <p className="mt-1 text-xs text-emerald-300">
-            Heard: “{lastHeard}”
-          </p>
-        )}
         {active?.livekit && (
           <div className="mt-3 flex flex-wrap gap-2">
             <button
