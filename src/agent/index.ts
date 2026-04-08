@@ -117,7 +117,7 @@ export default defineAgent({
     await session.start({ agent, room: ctx.room });
     session.say(
       "Bonjour! On commence. Tu veux commander un cafe maintenant ?",
-      { allowInterruptions: true }
+      { allowInterruptions: false }
     );
 
     await new Promise<void>((resolve) => {
