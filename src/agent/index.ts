@@ -94,6 +94,7 @@ export default defineAgent({
         apiKey: process.env.DEEPGRAM_API_KEY,
         model: ttsModel,
       }),
+      turnDetection: "manual",
       preemptiveGeneration: false,
       userAwayTimeout: null,
     });
@@ -105,6 +106,8 @@ export default defineAgent({
       },
     });
     let pendingCommitTimer: NodeJS.Timeout | null = null;
+    let awaitingManualCommit = false;
+    let sawTranscriptThisTurn = false;
 
     session.on(voice.AgentSessionEventTypes.ConversationItemAdded, (ev) => {
       const role = ev.item.role;
@@ -125,16 +128,27 @@ export default defineAgent({
     });
 
     session.on(voice.AgentSessionEventTypes.UserInputTranscribed, (ev) => {
-      if (!ev.transcript || !ev.isFinal) return;
+      if (!ev.transcript) return;
+      sawTranscriptThisTurn = true;
       const payload = {
         type: "user_transcribed",
         text: ev.transcript,
         language: ev.language,
+        isFinal: ev.isFinal,
       };
       void ctx.room.localParticipant?.publishData(
         new TextEncoder().encode(JSON.stringify(payload)),
         { reliable: true }
       );
+
+      if (ev.isFinal && awaitingManualCommit) {
+        if (pendingCommitTimer) {
+          clearTimeout(pendingCommitTimer);
+          pendingCommitTimer = null;
+        }
+        session.commitUserTurn();
+        awaitingManualCommit = false;
+      }
     });
 
     session.on(voice.AgentSessionEventTypes.Error, (ev) => {
@@ -161,16 +175,22 @@ export default defineAgent({
             clearTimeout(pendingCommitTimer);
             pendingCommitTimer = null;
           }
+          awaitingManualCommit = false;
+          sawTranscriptThisTurn = false;
           session.clearUserTurn();
         }
         if (parsed.type === "ptt_release") {
           if (pendingCommitTimer) {
             clearTimeout(pendingCommitTimer);
           }
+          awaitingManualCommit = true;
           pendingCommitTimer = setTimeout(() => {
-            session.commitUserTurn();
+            if (awaitingManualCommit) {
+              session.commitUserTurn();
+              awaitingManualCommit = false;
+            }
             pendingCommitTimer = null;
-          }, 700);
+          }, sawTranscriptThisTurn ? 700 : 2500);
         }
       } catch {
         // Ignore non-JSON data messages.
