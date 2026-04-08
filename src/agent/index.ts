@@ -154,7 +154,7 @@ export default defineAgent({
       room: ctx.room,
       inputOptions: {
         participantIdentity,
-        closeOnDisconnect: false,
+        closeOnDisconnect: true,
       },
     });
     session.say(
