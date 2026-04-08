@@ -9,7 +9,7 @@ COPY prisma ./prisma
 COPY tsconfig.json ./
 COPY prisma.config.ts ./
 
-RUN npm ci
+RUN npm ci --ignore-scripts --include=dev
 
 COPY src ./src
 

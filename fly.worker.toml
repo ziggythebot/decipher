@@ -7,9 +7,6 @@ primary_region = "lhr"
 [processes]
   app = "npm run agent:start"
 
-[restart]
-  policy = "always"
-
 [[vm]]
   cpu_kind = "shared"
   cpus = 1
