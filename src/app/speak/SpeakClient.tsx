@@ -343,7 +343,17 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
       nextRoom.on(RoomEvent.DataReceived, (payload) => {
         try {
           const text = new TextDecoder().decode(payload);
-          const parsed = JSON.parse(text) as { type?: string; text?: string; message?: string };
+          const parsed = JSON.parse(text) as {
+            type?: string;
+            text?: string;
+            message?: string;
+            stage?: string;
+            textPreview?: string;
+            reason?: string;
+            state?: string;
+            turnId?: number | null;
+            ts?: number;
+          };
           if (
             (parsed.type === "user_utterance" || parsed.type === "agent_utterance") &&
             typeof parsed.text === "string"
