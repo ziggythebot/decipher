@@ -71,6 +71,8 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
   const [connecting, setConnecting] = useState(false);
   const [connected, setConnected] = useState(false);
   const audioElementsRef = useRef<Map<string, HTMLAudioElement>>(new Map());
+  const manualDisconnectRef = useRef(false);
+  const reconnectAttemptsRef = useRef(0);
 
   function clearAttachedAudio() {
     for (const element of audioElementsRef.current.values()) {
@@ -202,15 +204,26 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
   async function connectAudio() {
     if (!active?.livekit || connecting || connected) return;
     const sessionId = active.id;
+    manualDisconnectRef.current = false;
     setConnecting(true);
     setMessage(null);
 
     try {
       const nextRoom = new Room();
       nextRoom.on("disconnected", () => {
+        const unexpectedDisconnect = !manualDisconnectRef.current;
         setConnected(false);
         setRoom(null);
         clearAttachedAudio();
+        if (unexpectedDisconnect && reconnectAttemptsRef.current < 1) {
+          reconnectAttemptsRef.current += 1;
+          setMessage("Audio dropped unexpectedly. Reconnecting...");
+          window.setTimeout(() => {
+            void connectAudio();
+          }, 800);
+          return;
+        }
+        setMessage("Audio disconnected.");
       });
       nextRoom.on(RoomEvent.TrackSubscribed, (track, publication) => {
         attachTrackAudio(track, publication);
@@ -249,6 +262,7 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
       }
       setRoom(nextRoom);
       setConnected(true);
+      reconnectAttemptsRef.current = 0;
       if (!active.livekit.dispatchCreated) {
         setMessage("Connected, but no tutor worker is online yet.");
       } else {
@@ -262,6 +276,7 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
   }
 
   function disconnectAudio() {
+    manualDisconnectRef.current = true;
     room?.disconnect();
     setRoom(null);
     setConnected(false);
@@ -290,6 +305,7 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
     const data = (await response.json()) as { totalGain?: number; level?: number };
     setMessage(`Session saved. +${data.totalGain ?? 0} XP${data.level ? ` • Level ${data.level}` : ""}`);
 
+    manualDisconnectRef.current = true;
     room?.disconnect();
     setRoom(null);
     setConnected(false);
