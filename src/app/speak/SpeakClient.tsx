@@ -70,6 +70,7 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
   const [room, setRoom] = useState<Room | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [connected, setConnected] = useState(false);
+  const [pttActive, setPttActive] = useState(false);
   const audioElementsRef = useRef<Map<string, HTMLAudioElement>>(new Map());
   const manualDisconnectRef = useRef(false);
   const reconnectAttemptsRef = useRef(0);
@@ -270,7 +271,7 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
         }
       });
       await nextRoom.connect(active.livekit.url, active.livekit.token);
-      await nextRoom.localParticipant.setMicrophoneEnabled(true);
+      await nextRoom.localParticipant.setMicrophoneEnabled(false);
       for (const participant of nextRoom.remoteParticipants.values()) {
         attachParticipantAudio(participant);
       }
@@ -280,6 +281,7 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
       if (!active.livekit.dispatchCreated) {
         setMessage("Connected, but no tutor worker is online yet.");
       } else {
+        setMessage("Connected to voice room. Hold-to-talk is ready.");
         syncTutorAudioState();
       }
     } catch {
@@ -294,8 +296,31 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
     room?.disconnect();
     setRoom(null);
     setConnected(false);
+    setPttActive(false);
     clearAttachedAudio();
     setMessage("Disconnected from voice room.");
+  }
+
+  async function beginPushToTalk() {
+    if (!room || !connected || pttActive) return;
+    try {
+      await room.localParticipant.setMicrophoneEnabled(true);
+      setPttActive(true);
+      setMessage("Listening... release to send.");
+    } catch {
+      setMessage("Could not enable microphone. Check browser mic permissions.");
+    }
+  }
+
+  async function endPushToTalk() {
+    if (!room || !connected || !pttActive) return;
+    try {
+      await room.localParticipant.setMicrophoneEnabled(false);
+      setPttActive(false);
+      setMessage("Mic muted. Hold to talk again.");
+    } catch {
+      setMessage("Could not mute microphone cleanly.");
+    }
   }
 
   async function endSession() {
@@ -323,6 +348,7 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
     room?.disconnect();
     setRoom(null);
     setConnected(false);
+    setPttActive(false);
     setActive(null);
     setElapsed(0);
     setEnding(false);
@@ -371,6 +397,20 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
               className="rounded-lg bg-zinc-700 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-zinc-600 disabled:cursor-not-allowed disabled:bg-zinc-800"
             >
               Disconnect Audio
+            </button>
+            <button
+              type="button"
+              onMouseDown={() => void beginPushToTalk()}
+              onMouseUp={() => void endPushToTalk()}
+              onMouseLeave={() => void endPushToTalk()}
+              onTouchStart={() => void beginPushToTalk()}
+              onTouchEnd={() => void endPushToTalk()}
+              disabled={!connected}
+              className={`rounded-lg px-3 py-2 text-xs font-semibold text-white transition-colors disabled:cursor-not-allowed ${
+                pttActive ? "bg-rose-600 hover:bg-rose-500" : "bg-emerald-600 hover:bg-emerald-500"
+              }`}
+            >
+              {pttActive ? "Release to Send" : "Hold to Talk"}
             </button>
             <span className="self-center text-xs text-zinc-500">
               Room: {active.livekit.roomName}
