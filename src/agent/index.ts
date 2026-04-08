@@ -264,6 +264,9 @@ export default defineAgent({
           });
         }
         if (parsed.type === "ptt_press") {
+          markMicReady("ptt_press", {
+            hasMicPublication: parsed.hasMicPublication ?? null,
+          });
           currentTurnId = ++turnCounter;
           console.info(
             JSON.stringify({
@@ -338,7 +341,7 @@ export default defineAgent({
       trackPublications: participantTrackPublications,
     });
 
-    const micReadyTimeoutMs = 8000;
+    const micReadyTimeoutMs = 5000;
     publishDebugStage("mic_ready_wait_start", {
       timeoutMs: micReadyTimeoutMs,
     });
@@ -348,15 +351,9 @@ export default defineAgent({
         setTimeout(resolve, micReadyTimeoutMs);
       }),
     ]);
-    if (micReadyReceived) {
-      publishDebugStage("mic_ready_wait_done", {
-        timeoutMs: micReadyTimeoutMs,
-      });
-    } else {
-      publishDebugStage("mic_ready_timeout_fallback", {
-        timeoutMs: micReadyTimeoutMs,
-      });
-    }
+    publishDebugStage(micReadyReceived ? "mic_ready_wait_done" : "mic_ready_wait_timeout", {
+      timeoutMs: micReadyTimeoutMs,
+    });
 
     await session.start({
       agent,

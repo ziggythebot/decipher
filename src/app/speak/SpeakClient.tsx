@@ -376,9 +376,8 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
       if (!micPublished) {
         throw new Error("Microphone track was not published after fallback publish attempt.");
       }
-      setMicDebug("Mic track published and live. Hold to Talk marks turn boundaries.");
       const micPublication = getMicPublication(nextRoom);
-      void nextRoom.localParticipant.publishData(
+      await nextRoom.localParticipant.publishData(
         new TextEncoder().encode(
           JSON.stringify({
             type: "mic_ready",
@@ -388,6 +387,7 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
         ),
         { reliable: true }
       );
+      setMicDebug("Mic track published and live. Hold to Talk marks turn boundaries.");
       for (const participant of nextRoom.remoteParticipants.values()) {
         attachParticipantAudio(participant);
       }
