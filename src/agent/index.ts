@@ -7,7 +7,6 @@ import {
   voice,
 } from "@livekit/agents";
 import * as deepgram from "@livekit/agents-plugin-deepgram";
-import * as elevenlabs from "@livekit/agents-plugin-elevenlabs";
 import * as openai from "@livekit/agents-plugin-openai";
 import { fileURLToPath } from "node:url";
 
@@ -69,9 +68,9 @@ export default defineAgent({
         apiKey: process.env.ANTHROPIC_API_KEY,
         toolChoice: "none",
       }),
-      tts: new elevenlabs.TTS({
-        apiKey: process.env.ELEVENLABS_API_KEY,
-        voiceId: process.env.ELEVENLABS_VOICE_ID_FR ?? "pNInz6obpgDQGcFmaJgB",
+      tts: new deepgram.TTS({
+        apiKey: process.env.DEEPGRAM_API_KEY,
+        model: process.env.DEEPGRAM_TTS_MODEL ?? "aura-asteria-en",
       }),
     });
 
@@ -116,11 +115,10 @@ export default defineAgent({
     });
 
     await session.start({ agent, room: ctx.room });
-    session.generateReply({
-      instructions:
-        "Open the conversation now with a short warm greeting, then ask the learner the first question for the active scenario.",
-      allowInterruptions: true,
-    });
+    session.say(
+      "Bonjour! On commence. Tu veux commander un cafe maintenant ?",
+      { allowInterruptions: true }
+    );
 
     await new Promise<void>((resolve) => {
       const done = () => resolve();
