@@ -407,7 +407,7 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
       }
       await setMicTrackMuted(nextRoom, true);
       const micPublication = getMicPublication(nextRoom);
-      await nextRoom.localParticipant.publishData(
+      void nextRoom.localParticipant.publishData(
         new TextEncoder().encode(
           JSON.stringify({
             type: "mic_ready",
