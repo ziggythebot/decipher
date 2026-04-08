@@ -104,6 +104,7 @@ export default defineAgent({
         no_op: noOpTool,
       },
     });
+    let pendingCommitTimer: NodeJS.Timeout | null = null;
 
     session.on(voice.AgentSessionEventTypes.ConversationItemAdded, (ev) => {
       const role = ev.item.role;
@@ -155,8 +156,21 @@ export default defineAgent({
       try {
         const text = new TextDecoder().decode(payload);
         const parsed = JSON.parse(text) as { type?: string };
+        if (parsed.type === "ptt_press") {
+          if (pendingCommitTimer) {
+            clearTimeout(pendingCommitTimer);
+            pendingCommitTimer = null;
+          }
+          session.clearUserTurn();
+        }
         if (parsed.type === "ptt_release") {
-          session.commitUserTurn();
+          if (pendingCommitTimer) {
+            clearTimeout(pendingCommitTimer);
+          }
+          pendingCommitTimer = setTimeout(() => {
+            session.commitUserTurn();
+            pendingCommitTimer = null;
+          }, 700);
         }
       } catch {
         // Ignore non-JSON data messages.

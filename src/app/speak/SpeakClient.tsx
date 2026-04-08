@@ -297,6 +297,10 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
     if (!room || !connected || pttActive) return;
     try {
       await room.localParticipant.setMicrophoneEnabled(true);
+      await room.localParticipant.publishData(
+        new TextEncoder().encode(JSON.stringify({ type: "ptt_press" })),
+        { reliable: true }
+      );
       setPttActive(true);
       setMessage("Listening... release to send.");
     } catch {
