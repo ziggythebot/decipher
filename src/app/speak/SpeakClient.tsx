@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Room, RoomEvent, Track } from "livekit-client";
+import { Participant, Room, RoomEvent, Track, TrackPublication } from "livekit-client";
 import type { SpeakScenarioSlug } from "@/lib/speak/scenarios";
 
 type Scenario = {
@@ -65,6 +65,56 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
   const [connected, setConnected] = useState(false);
   const audioElementsRef = useRef<Map<string, HTMLAudioElement>>(new Map());
 
+  function clearAttachedAudio() {
+    for (const element of audioElementsRef.current.values()) {
+      element.remove();
+    }
+    audioElementsRef.current.clear();
+  }
+
+  function syncTutorAudioState() {
+    if (audioElementsRef.current.size > 0) {
+      setMessage("Connected to voice room. Tutor audio is live.");
+      return;
+    }
+    setMessage("Connected to voice room. Waiting for tutor audio...");
+  }
+
+  function attachTrackAudio(track: Track, publication: TrackPublication) {
+    if (track.kind !== Track.Kind.Audio) return;
+    if (audioElementsRef.current.has(publication.trackSid)) return;
+    const element = track.attach() as HTMLAudioElement;
+    element.autoplay = true;
+    element.muted = false;
+    element.setAttribute("playsinline", "true");
+    element.style.display = "none";
+    document.body.appendChild(element);
+    audioElementsRef.current.set(publication.trackSid, element);
+    void element.play().catch(() => {
+      setMessage("Tutor audio is blocked by the browser. Tap Connect Audio again to retry playback.");
+    });
+    syncTutorAudioState();
+  }
+
+  function detachTrackAudio(track: Track, publication: TrackPublication) {
+    const element = audioElementsRef.current.get(publication.trackSid);
+    if (!element) return;
+    track.detach(element);
+    element.remove();
+    audioElementsRef.current.delete(publication.trackSid);
+    syncTutorAudioState();
+  }
+
+  function attachParticipantAudio(participant: Participant) {
+    for (const publication of participant.trackPublications.values()) {
+      if (publication.kind !== Track.Kind.Audio) continue;
+      publication.setSubscribed(true);
+      if (publication.track) {
+        attachTrackAudio(publication.track, publication);
+      }
+    }
+  }
+
   useEffect(() => {
     if (!active) return;
 
@@ -83,10 +133,7 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
   useEffect(() => {
     return () => {
       room?.disconnect();
-      for (const element of audioElementsRef.current.values()) {
-        element.remove();
-      }
-      audioElementsRef.current.clear();
+      clearAttachedAudio();
     };
   }, [room, audioElementsRef]);
 
@@ -154,27 +201,21 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
       nextRoom.on("disconnected", () => {
         setConnected(false);
         setRoom(null);
-        for (const element of audioElementsRef.current.values()) {
-          element.remove();
-        }
-        audioElementsRef.current.clear();
+        clearAttachedAudio();
       });
       nextRoom.on(RoomEvent.TrackSubscribed, (track, publication) => {
-        if (track.kind !== Track.Kind.Audio) return;
-        const element = track.attach() as HTMLAudioElement;
-        element.autoplay = true;
-        element.setAttribute("playsinline", "true");
-        element.style.display = "none";
-        document.body.appendChild(element);
-        audioElementsRef.current.set(publication.trackSid, element);
-        setMessage("Connected to voice room. Tutor audio is live.");
+        attachTrackAudio(track, publication);
       });
       nextRoom.on(RoomEvent.TrackUnsubscribed, (track, publication) => {
-        const element = audioElementsRef.current.get(publication.trackSid);
-        if (!element) return;
-        track.detach(element);
-        element.remove();
-        audioElementsRef.current.delete(publication.trackSid);
+        detachTrackAudio(track, publication);
+      });
+      nextRoom.on(RoomEvent.TrackPublished, (publication, participant) => {
+        if (participant.identity === nextRoom.localParticipant.identity) return;
+        if (publication.kind !== Track.Kind.Audio) return;
+        publication.setSubscribed(true);
+      });
+      nextRoom.on(RoomEvent.ParticipantConnected, (participant) => {
+        attachParticipantAudio(participant);
       });
       nextRoom.on(RoomEvent.DataReceived, (payload) => {
         try {
@@ -192,13 +233,16 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
       });
       await nextRoom.connect(active.livekit.url, active.livekit.token);
       await nextRoom.localParticipant.setMicrophoneEnabled(true);
+      for (const participant of nextRoom.remoteParticipants.values()) {
+        attachParticipantAudio(participant);
+      }
       setRoom(nextRoom);
       setConnected(true);
-      setMessage(
-        active.livekit.dispatchCreated
-          ? "Connected to voice room. Waiting for tutor audio..."
-          : "Connected, but no tutor worker is online yet."
-      );
+      if (!active.livekit.dispatchCreated) {
+        setMessage("Connected, but no tutor worker is online yet.");
+      } else {
+        syncTutorAudioState();
+      }
     } catch {
       setMessage("Could not connect to LiveKit room. Check LIVEKIT env vars and server config.");
     } finally {
@@ -210,6 +254,7 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
     room?.disconnect();
     setRoom(null);
     setConnected(false);
+    clearAttachedAudio();
     setMessage("Disconnected from voice room.");
   }
 
