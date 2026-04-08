@@ -21,6 +21,18 @@ export default defineAgent({
   entry: async (ctx) => {
     await ctx.connect(undefined, AutoSubscribe.AUDIO_ONLY);
 
+    // AutoSubscribe.AUDIO_ONLY connects with autoSubscribe:false on the SFU and only
+    // manually subscribes to tracks from participants already present at connect time.
+    // Participants who join later have their tracks published but never subscribed, so
+    // the STT pipeline receives no audio. This handler fixes that by subscribing to
+    // every audio track published after connect.
+    ctx.room.on("trackPublished", (publication: { kind: number; setSubscribed: (v: boolean) => void }, _participant: unknown) => {
+      const AUDIO = 1; // TrackKind.KIND_AUDIO from @livekit/rtc-node
+      if (publication.kind === AUDIO) {
+        publication.setSubscribed(true);
+      }
+    });
+
     let participantIdentity: string | undefined;
     const participantIdentityResolvedVia = getRemoteParticipantCount(ctx) > 0 ? "immediate" : "wait";
     if (participantIdentityResolvedVia === "wait") {
@@ -113,12 +125,6 @@ export default defineAgent({
     let sawFinalTranscriptThisTurn = false;
     let turnCounter = 0;
     let currentTurnId = 0;
-    let micReadyReceived = false;
-    let introSent = false;
-    let resolveMicReadyWait: (() => void) | null = null;
-    const micReadyGate = new Promise<void>((resolve) => {
-      resolveMicReadyWait = resolve;
-    });
 
     function publishData(payload: Record<string, unknown>) {
       void ctx.room.localParticipant?.publishData(
@@ -141,19 +147,6 @@ export default defineAgent({
       publishDebugStage("turn_commit_requested", { reason });
       session.commitUserTurn();
       publishDebugStage("turn_commit_sent", { reason });
-    }
-
-    function markMicReady(source: string, extra?: Record<string, unknown>) {
-      if (micReadyReceived) return;
-      micReadyReceived = true;
-      publishDebugStage("mic_ready_received", {
-        source,
-        ...(extra ?? {}),
-      });
-      if (resolveMicReadyWait) {
-        resolveMicReadyWait();
-        resolveMicReadyWait = null;
-      }
     }
 
     function publishNoAudioCaptured() {
@@ -230,14 +223,6 @@ export default defineAgent({
       };
       publishData(payload);
       publishDebugStage("agent_state", { state: ev.newState });
-      if (!introSent && (ev.newState === "listening" || ev.newState === "idle")) {
-        introSent = true;
-        publishDebugStage("intro_say_triggered", { state: ev.newState });
-        session.say(
-          "Bonjour! On commence. Tu veux commander un cafe maintenant ?",
-          { allowInterruptions: false }
-        );
-      }
     });
 
     session.on(voice.AgentSessionEventTypes.SpeechCreated, (ev) => {
@@ -255,18 +240,8 @@ export default defineAgent({
           holdMs?: number | null;
           hasMicPublication?: boolean;
           micMutedBeforeRelease?: boolean | null;
-          trackSid?: string | null;
         };
-        if (parsed.type === "mic_ready") {
-          markMicReady("data_channel", {
-            hasMicPublication: parsed.hasMicPublication ?? null,
-            trackSid: parsed.trackSid ?? null,
-          });
-        }
         if (parsed.type === "ptt_press") {
-          markMicReady("ptt_press", {
-            hasMicPublication: parsed.hasMicPublication ?? null,
-          });
           currentTurnId = ++turnCounter;
           console.info(
             JSON.stringify({
@@ -341,20 +316,6 @@ export default defineAgent({
       trackPublications: participantTrackPublications,
     });
 
-    const micReadyTimeoutMs = 5000;
-    publishDebugStage("mic_ready_wait_start", {
-      timeoutMs: micReadyTimeoutMs,
-    });
-    await Promise.race([
-      micReadyGate,
-      new Promise<void>((resolve) => {
-        setTimeout(resolve, micReadyTimeoutMs);
-      }),
-    ]);
-    publishDebugStage(micReadyReceived ? "mic_ready_wait_done" : "mic_ready_wait_timeout", {
-      timeoutMs: micReadyTimeoutMs,
-    });
-
     await session.start({
       agent,
       room: ctx.room,
@@ -366,6 +327,10 @@ export default defineAgent({
     publishDebugStage("session_started", {
       participantIdentity: participantIdentity ?? null,
     });
+    session.say(
+      "Bonjour! On commence. Tu veux commander un cafe maintenant ?",
+      { allowInterruptions: false }
+    );
 
     await new Promise<void>((resolve) => {
       const done = () => resolve();
