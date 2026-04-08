@@ -45,6 +45,12 @@ type ActiveSession = {
 
 type MicPublication = TrackPublication & {
   isMuted?: boolean;
+  mute?: () => Promise<void> | void;
+  unmute?: () => Promise<void> | void;
+  track?: {
+    mute?: () => Promise<void> | void;
+    unmute?: () => Promise<void> | void;
+  } | null;
 };
 
 function formatElapsed(totalSeconds: number): string {
@@ -76,24 +82,42 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
   const [connected, setConnected] = useState(false);
   const [pttActive, setPttActive] = useState(false);
   const [lastHeard, setLastHeard] = useState<string | null>(null);
-  const [lastTutorReply, setLastTutorReply] = useState<string | null>(null);
   const [micDebug, setMicDebug] = useState<string | null>(null);
   const audioElementsRef = useRef<Map<string, HTMLAudioElement>>(new Map());
   const pttStartedAtRef = useRef<number | null>(null);
-  const pendingReplyTimeoutRef = useRef<number | null>(null);
-
-  function clearPendingReplyTimeout() {
-    if (pendingReplyTimeoutRef.current !== null) {
-      window.clearTimeout(pendingReplyTimeoutRef.current);
-      pendingReplyTimeoutRef.current = null;
-    }
-  }
 
   function getMicPublication(targetRoom: Room): MicPublication | null {
     const publication = Array.from(targetRoom.localParticipant.trackPublications.values()).find(
       (entry) => entry.source === Track.Source.Microphone
     );
     return (publication as MicPublication | undefined) ?? null;
+  }
+
+  async function setMicMuted(targetRoom: Room, muted: boolean): Promise<boolean> {
+    const publication = getMicPublication(targetRoom);
+    if (!publication) return false;
+
+    if (muted) {
+      if (typeof publication.mute === "function") {
+        await publication.mute();
+        return true;
+      }
+      if (publication.track && typeof publication.track.mute === "function") {
+        await publication.track.mute();
+        return true;
+      }
+      return false;
+    }
+
+    if (typeof publication.unmute === "function") {
+      await publication.unmute();
+      return true;
+    }
+    if (publication.track && typeof publication.track.unmute === "function") {
+      await publication.track.unmute();
+      return true;
+    }
+    return false;
   }
 
   async function waitForMicPublication(targetRoom: Room, timeoutMs = 2500): Promise<boolean> {
@@ -185,7 +209,6 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
 
   useEffect(() => {
     return () => {
-      clearPendingReplyTimeout();
       room?.disconnect();
       clearAttachedAudio();
     };
@@ -318,27 +341,10 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
           ) {
             void persistSessionEvent(sessionId, parsed.type, parsed.text);
           }
-          if (parsed.type === "agent_utterance" && typeof parsed.text === "string") {
-            clearPendingReplyTimeout();
-            setLastTutorReply(parsed.text);
-            setMessage("Tutor replied.");
-          }
           if (parsed.type === "user_transcribed" && typeof parsed.text === "string") {
             setLastHeard(parsed.text);
           }
-          if (parsed.type === "agent_state") {
-            const state = (parsed as { state?: string }).state;
-            if (state === "thinking") {
-              setMessage("Tutor is thinking...");
-            } else if (state === "speaking") {
-              clearPendingReplyTimeout();
-              setMessage("Tutor is responding...");
-            } else if (state === "idle" || state === "listening") {
-              clearPendingReplyTimeout();
-            }
-          }
           if (parsed.type === "agent_error" && typeof parsed.message === "string") {
-            clearPendingReplyTimeout();
             setMessage(`Tutor error: ${parsed.message}`);
           }
         } catch {
@@ -351,7 +357,10 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
       if (!micPublished) {
         throw new Error("Microphone track was not published after connection.");
       }
-      setMicDebug("Mic live. Hold to Talk marks your turn and release sends it.");
+      const micMuted = await setMicMuted(nextRoom, true);
+      setMicDebug(
+        micMuted ? "Mic ready (muted). Hold to Talk to unmute and send." : "Mic ready, mute control unavailable."
+      );
       for (const participant of nextRoom.remoteParticipants.values()) {
         attachParticipantAudio(participant);
       }
@@ -396,7 +405,8 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
         setMessage("Microphone track was not published. Reconnect audio and retry.");
         return;
       }
-      setMicDebug("Listening... speak while holding.");
+      const unmuted = await setMicMuted(room, false);
+      setMicDebug(unmuted ? "Mic live while button is held." : "Mic unmute call failed.");
       await room.localParticipant.publishData(
         new TextEncoder().encode(
           JSON.stringify({
@@ -418,14 +428,16 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
     try {
       const holdMs = pttStartedAtRef.current ? Date.now() - pttStartedAtRef.current : null;
       const micPublication = getMicPublication(room);
-      setMicDebug("Turn sent. Waiting for transcript...");
+      const micMutedBeforeRelease = micPublication?.isMuted ?? null;
+      const muted = await setMicMuted(room, true);
+      setMicDebug(muted ? "Mic muted. Waiting for transcript..." : "Mic mute call failed.");
       await room.localParticipant.publishData(
         new TextEncoder().encode(
           JSON.stringify({
             type: "ptt_release",
             holdMs,
             hasMicPublication: !!micPublication,
-            micMutedBeforeRelease: micPublication?.isMuted ?? null,
+            micMutedBeforeRelease,
           })
         ),
         { reliable: true }
@@ -433,10 +445,6 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
       setPttActive(false);
       pttStartedAtRef.current = null;
       setMessage("Processing your reply...");
-      clearPendingReplyTimeout();
-      pendingReplyTimeoutRef.current = window.setTimeout(() => {
-        setMessage("Still processing. If tutor audio does not start, hold to talk and retry once.");
-      }, 10000);
     } catch {
       setMessage("Could not mute microphone cleanly.");
     }
@@ -499,7 +507,6 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
         </div>
         {message && <p className="mt-3 text-xs text-zinc-300">{message}</p>}
         {lastHeard && <p className="mt-1 text-xs text-emerald-300">Heard: {lastHeard}</p>}
-        {lastTutorReply && <p className="mt-1 text-xs text-sky-300">Tutor: {lastTutorReply}</p>}
         {micDebug && <p className="mt-1 text-xs text-amber-300">{micDebug}</p>}
         {active?.livekit && (
           <div className="mt-3 flex flex-wrap gap-2">
