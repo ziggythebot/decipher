@@ -21,15 +21,25 @@ export default defineAgent({
   entry: async (ctx) => {
     await ctx.connect(undefined, AutoSubscribe.AUDIO_ONLY);
 
+    let participantIdentity: string | undefined;
     if (getRemoteParticipantCount(ctx) === 0) {
       try {
-        await Promise.race([
+        const participant = await Promise.race([
           ctx.waitForParticipant(),
           new Promise((resolve) => setTimeout(resolve, 5000)),
         ]);
+        participantIdentity =
+          participant && typeof participant === "object" && "identity" in participant
+            ? String((participant as { identity?: unknown }).identity ?? "")
+            : undefined;
       } catch {
         // Continue even if participant wait fails; room metadata may still be usable.
       }
+    } else {
+      const firstParticipant = (ctx.room.remoteParticipants as Map<string, { identity?: string }> | undefined)
+        ?.values()
+        .next().value;
+      participantIdentity = firstParticipant?.identity;
     }
 
     const metadata = getLearnerMetadata(ctx);
@@ -41,6 +51,7 @@ export default defineAgent({
       sessionMode: rawSessionMode,
       scenarioType: rawScenarioType,
       languageName: rawLanguageName,
+      targetLanguage: rawTargetLanguage,
     } = metadata;
     const userName = asString(rawUserName, "learner");
     const knownWords = asStringArray(rawKnownWords);
@@ -49,6 +60,8 @@ export default defineAgent({
     const sessionMode = asString(rawSessionMode, "guided");
     const scenarioType = asString(rawScenarioType, "ordering_coffee");
     const languageName = asString(rawLanguageName, "French");
+    const targetLanguage = asString(rawTargetLanguage, "fr");
+    const ttsModel = resolveDeepgramTtsModel(targetLanguage, process.env.DEEPGRAM_TTS_MODEL);
 
     const systemPrompt = buildSystemPrompt({
       userName,
@@ -70,7 +83,7 @@ export default defineAgent({
       }),
       tts: new deepgram.TTS({
         apiKey: process.env.DEEPGRAM_API_KEY,
-        model: process.env.DEEPGRAM_TTS_MODEL ?? "aura-asteria-en",
+        model: ttsModel,
       }),
     });
 
@@ -114,7 +127,14 @@ export default defineAgent({
       );
     });
 
-    await session.start({ agent, room: ctx.room });
+    await session.start({
+      agent,
+      room: ctx.room,
+      inputOptions: {
+        participantIdentity,
+        closeOnDisconnect: false,
+      },
+    });
     session.say(
       "Bonjour! On commence. Tu veux commander un cafe maintenant ?",
       { allowInterruptions: false }
@@ -133,6 +153,29 @@ export default defineAgent({
 function getRemoteParticipantCount(ctx: { room: { remoteParticipants?: unknown } }): number {
   const map = ctx.room.remoteParticipants as Map<string, unknown> | undefined;
   return map ? map.size : 0;
+}
+
+function resolveDeepgramTtsModel(targetLanguage: string, explicitModel?: string): string {
+  if (explicitModel && explicitModel.trim().length > 0) {
+    return explicitModel.trim();
+  }
+
+  switch (targetLanguage.toLowerCase()) {
+    case "fr":
+      return "aura-2-agathe-fr";
+    case "es":
+      return "aura-2-celeste-es";
+    case "de":
+      return "aura-2-julius-de";
+    case "it":
+      return "aura-2-livia-it";
+    case "nl":
+      return "aura-2-rhea-nl";
+    case "ja":
+      return "aura-2-fujin-ja";
+    default:
+      return "aura-2-thalia-en";
+  }
 }
 
 function parseMetadata(raw: string | undefined): Record<string, unknown> {
