@@ -85,7 +85,7 @@ export async function POST(request: Request) {
   let livekit: { url: string; token: string; roomName: string; dispatchCreated: boolean } | null = null;
   if (livekitUrl && livekitApiKey && livekitApiSecret) {
     const roomName = `decipher-${user.id}-${session.id}`;
-    const identity = `learner-${user.id}`;
+    const identity = `learner-${user.id}-${session.id}`;
     const languageName =
       user.targetLanguage === "fr"
         ? "French"

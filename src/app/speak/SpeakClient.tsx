@@ -220,7 +220,6 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
       }
 
       const nextRoom = new Room({
-        disconnectOnPageLeave: false,
         audioCaptureDefaults: {
           echoCancellation: true,
           noiseSuppression: true,
