@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Room, RoomEvent } from "livekit-client";
+import { Room, RoomEvent, Track } from "livekit-client";
 import type { SpeakScenarioSlug } from "@/lib/speak/scenarios";
 
 type Scenario = {
@@ -63,6 +63,7 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
   const [room, setRoom] = useState<Room | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [connected, setConnected] = useState(false);
+  const audioElementsRef = useRef<Map<string, HTMLAudioElement>>(new Map());
 
   useEffect(() => {
     if (!active) return;
@@ -82,8 +83,12 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
   useEffect(() => {
     return () => {
       room?.disconnect();
+      for (const element of audioElementsRef.current.values()) {
+        element.remove();
+      }
+      audioElementsRef.current.clear();
     };
-  }, [room]);
+  }, [room, audioElementsRef]);
 
   async function persistSessionEvent(
     sessionId: string,
@@ -149,6 +154,27 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
       nextRoom.on("disconnected", () => {
         setConnected(false);
         setRoom(null);
+        for (const element of audioElementsRef.current.values()) {
+          element.remove();
+        }
+        audioElementsRef.current.clear();
+      });
+      nextRoom.on(RoomEvent.TrackSubscribed, (track, publication) => {
+        if (track.kind !== Track.Kind.Audio) return;
+        const element = track.attach() as HTMLAudioElement;
+        element.autoplay = true;
+        element.setAttribute("playsinline", "true");
+        element.style.display = "none";
+        document.body.appendChild(element);
+        audioElementsRef.current.set(publication.trackSid, element);
+        setMessage("Connected to voice room. Tutor audio is live.");
+      });
+      nextRoom.on(RoomEvent.TrackUnsubscribed, (track, publication) => {
+        const element = audioElementsRef.current.get(publication.trackSid);
+        if (!element) return;
+        track.detach(element);
+        element.remove();
+        audioElementsRef.current.delete(publication.trackSid);
       });
       nextRoom.on(RoomEvent.DataReceived, (payload) => {
         try {
