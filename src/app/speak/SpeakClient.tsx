@@ -73,8 +73,6 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
   const [pttActive, setPttActive] = useState(false);
   const [lastHeard, setLastHeard] = useState<string | null>(null);
   const audioElementsRef = useRef<Map<string, HTMLAudioElement>>(new Map());
-  const manualDisconnectRef = useRef(false);
-  const reconnectAttemptsRef = useRef(0);
 
   function clearAttachedAudio() {
     for (const element of audioElementsRef.current.values()) {
@@ -207,7 +205,6 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
   async function connectAudio() {
     if (!active?.livekit || connecting || connected) return;
     const sessionId = active.id;
-    manualDisconnectRef.current = false;
     setConnecting(true);
     setMessage(null);
 
@@ -226,20 +223,11 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
           autoGainControl: true,
         },
       });
-      nextRoom.on("disconnected", (reason) => {
-        const unexpectedDisconnect = !manualDisconnectRef.current;
+      nextRoom.on("disconnected", () => {
         setConnected(false);
         setRoom(null);
         clearAttachedAudio();
-        if (unexpectedDisconnect && reconnectAttemptsRef.current < 1) {
-          reconnectAttemptsRef.current += 1;
-          setMessage("Audio dropped unexpectedly. Reconnecting...");
-          window.setTimeout(() => {
-            void connectAudio();
-          }, 800);
-          return;
-        }
-        setMessage(`Audio disconnected${reason ? ` (${String(reason)})` : ""}.`);
+        setMessage("Audio disconnected.");
       });
       nextRoom.on(RoomEvent.TrackSubscribed, (track, publication) => {
         attachTrackAudio(track, publication);
@@ -284,11 +272,9 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
       }
       setRoom(nextRoom);
       setConnected(true);
-      reconnectAttemptsRef.current = 0;
       if (!active.livekit.dispatchCreated) {
         setMessage("Connected, but no tutor worker is online yet.");
       } else {
-        setMessage("Connected to voice room. Hold to Talk and speak, then release.");
         syncTutorAudioState();
       }
     } catch {
@@ -299,7 +285,6 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
   }
 
   function disconnectAudio() {
-    manualDisconnectRef.current = true;
     room?.disconnect();
     setRoom(null);
     setConnected(false);
@@ -328,7 +313,7 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
         { reliable: true }
       );
       setPttActive(false);
-      setMessage("Mic muted. Hold to talk again.");
+      setMessage("Processing your reply...");
     } catch {
       setMessage("Could not mute microphone cleanly.");
     }
@@ -355,7 +340,6 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
     const data = (await response.json()) as { totalGain?: number; level?: number };
     setMessage(`Session saved. +${data.totalGain ?? 0} XP${data.level ? ` • Level ${data.level}` : ""}`);
 
-    manualDisconnectRef.current = true;
     room?.disconnect();
     setRoom(null);
     setConnected(false);

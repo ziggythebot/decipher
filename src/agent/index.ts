@@ -11,7 +11,7 @@ import * as openai from "@livekit/agents-plugin-openai";
 import { fileURLToPath } from "node:url";
 
 // Decipher voice agent — French conversation practice
-// Uses Deepgram STT + Claude (via OpenAI-compat) + ElevenLabs TTS
+// Uses Deepgram STT + Claude (via OpenAI-compat) + Deepgram TTS
 const noOpTool = llm.tool({
   description: "Internal no-op tool for provider compatibility.",
   execute: async () => "ok",
@@ -94,6 +94,8 @@ export default defineAgent({
         apiKey: process.env.DEEPGRAM_API_KEY,
         model: ttsModel,
       }),
+      preemptiveGeneration: false,
+      userAwayTimeout: null,
     });
 
     const agent = new voice.Agent({
