@@ -108,6 +108,18 @@ export default defineAgent({
     let pendingCommitTimer: NodeJS.Timeout | null = null;
     let awaitingManualCommit = false;
     let sawTranscriptThisTurn = false;
+    let sawFinalTranscriptThisTurn = false;
+
+    function publishNoAudioCaptured() {
+      const payload = {
+        type: "agent_error",
+        message: "No speech detected. Hold to Talk, speak, then release.",
+      };
+      void ctx.room.localParticipant?.publishData(
+        new TextEncoder().encode(JSON.stringify(payload)),
+        { reliable: true }
+      );
+    }
 
     session.on(voice.AgentSessionEventTypes.ConversationItemAdded, (ev) => {
       const role = ev.item.role;
@@ -129,10 +141,12 @@ export default defineAgent({
 
     session.on(voice.AgentSessionEventTypes.UserInputTranscribed, (ev) => {
       if (!ev.transcript) return;
+      const trimmed = ev.transcript.trim();
+      if (!trimmed) return;
       sawTranscriptThisTurn = true;
       const payload = {
         type: "user_transcribed",
-        text: ev.transcript,
+        text: trimmed,
         language: ev.language,
         isFinal: ev.isFinal,
       };
@@ -142,6 +156,7 @@ export default defineAgent({
       );
 
       if (ev.isFinal && awaitingManualCommit) {
+        sawFinalTranscriptThisTurn = true;
         if (pendingCommitTimer) {
           clearTimeout(pendingCommitTimer);
           pendingCommitTimer = null;
@@ -177,6 +192,7 @@ export default defineAgent({
           }
           awaitingManualCommit = false;
           sawTranscriptThisTurn = false;
+          sawFinalTranscriptThisTurn = false;
           session.clearUserTurn();
         }
         if (parsed.type === "ptt_release") {
@@ -186,7 +202,11 @@ export default defineAgent({
           awaitingManualCommit = true;
           pendingCommitTimer = setTimeout(() => {
             if (awaitingManualCommit) {
-              session.commitUserTurn();
+              if (sawFinalTranscriptThisTurn || sawTranscriptThisTurn) {
+                session.commitUserTurn();
+              } else {
+                publishNoAudioCaptured();
+              }
               awaitingManualCommit = false;
             }
             pendingCommitTimer = null;
