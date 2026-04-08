@@ -184,8 +184,19 @@ export default defineAgent({
     ctx.room.on("dataReceived", (payload) => {
       try {
         const text = new TextDecoder().decode(payload);
-        const parsed = JSON.parse(text) as { type?: string };
+        const parsed = JSON.parse(text) as {
+          type?: string;
+          holdMs?: number | null;
+          hasMicPublication?: boolean;
+          micMutedBeforeRelease?: boolean | null;
+        };
         if (parsed.type === "ptt_press") {
+          console.info(
+            JSON.stringify({
+              event: "ptt_press",
+              hasMicPublication: parsed.hasMicPublication ?? null,
+            })
+          );
           if (pendingCommitTimer) {
             clearTimeout(pendingCommitTimer);
             pendingCommitTimer = null;
@@ -196,6 +207,14 @@ export default defineAgent({
           session.clearUserTurn();
         }
         if (parsed.type === "ptt_release") {
+          console.info(
+            JSON.stringify({
+              event: "ptt_release",
+              holdMs: parsed.holdMs ?? null,
+              hasMicPublication: parsed.hasMicPublication ?? null,
+              micMutedBeforeRelease: parsed.micMutedBeforeRelease ?? null,
+            })
+          );
           if (pendingCommitTimer) {
             clearTimeout(pendingCommitTimer);
           }

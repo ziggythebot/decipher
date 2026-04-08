@@ -72,7 +72,9 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
   const [connected, setConnected] = useState(false);
   const [pttActive, setPttActive] = useState(false);
   const [lastHeard, setLastHeard] = useState<string | null>(null);
+  const [micDebug, setMicDebug] = useState<string | null>(null);
   const audioElementsRef = useRef<Map<string, HTMLAudioElement>>(new Map());
+  const pttStartedAtRef = useRef<number | null>(null);
 
   function clearAttachedAudio() {
     for (const element of audioElementsRef.current.values()) {
@@ -245,6 +247,26 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
       nextRoom.on(RoomEvent.ParticipantConnected, (participant) => {
         attachParticipantAudio(participant);
       });
+      nextRoom.on(RoomEvent.LocalTrackPublished, (publication) => {
+        if (publication.source === Track.Source.Microphone) {
+          setMicDebug("Mic track published.");
+        }
+      });
+      nextRoom.on(RoomEvent.TrackMuted, (publication, participant) => {
+        if (participant.identity !== nextRoom.localParticipant.identity) return;
+        if (publication.source === Track.Source.Microphone) {
+          setMicDebug("Mic muted.");
+        }
+      });
+      nextRoom.on(RoomEvent.TrackUnmuted, (publication, participant) => {
+        if (participant.identity !== nextRoom.localParticipant.identity) return;
+        if (publication.source === Track.Source.Microphone) {
+          setMicDebug("Mic unmuted.");
+        }
+      });
+      nextRoom.on(RoomEvent.LocalAudioSilenceDetected, () => {
+        setMicDebug("Mic published but silent input detected.");
+      });
       nextRoom.on(RoomEvent.DataReceived, (payload) => {
         try {
           const text = new TextDecoder().decode(payload);
@@ -272,6 +294,7 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
       }
       setRoom(nextRoom);
       setConnected(true);
+      setMicDebug(null);
       if (!active.livekit.dispatchCreated) {
         setMessage("Connected, but no tutor worker is online yet.");
       } else {
@@ -296,9 +319,18 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
   async function beginPushToTalk() {
     if (!room || !connected || pttActive) return;
     try {
+      pttStartedAtRef.current = Date.now();
+      const micPublication = Array.from(room.localParticipant.trackPublications.values()).find(
+        (publication) => publication.source === Track.Source.Microphone
+      );
       await room.localParticipant.setMicrophoneEnabled(true);
       await room.localParticipant.publishData(
-        new TextEncoder().encode(JSON.stringify({ type: "ptt_press" })),
+        new TextEncoder().encode(
+          JSON.stringify({
+            type: "ptt_press",
+            hasMicPublication: !!micPublication,
+          })
+        ),
         { reliable: true }
       );
       setPttActive(true);
@@ -311,12 +343,24 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
   async function endPushToTalk() {
     if (!room || !connected || !pttActive) return;
     try {
+      const holdMs = pttStartedAtRef.current ? Date.now() - pttStartedAtRef.current : null;
+      const micPublication = Array.from(room.localParticipant.trackPublications.values()).find(
+        (publication) => publication.source === Track.Source.Microphone
+      );
       await room.localParticipant.setMicrophoneEnabled(false);
       await room.localParticipant.publishData(
-        new TextEncoder().encode(JSON.stringify({ type: "ptt_release" })),
+        new TextEncoder().encode(
+          JSON.stringify({
+            type: "ptt_release",
+            holdMs,
+            hasMicPublication: !!micPublication,
+            micMutedBeforeRelease: micPublication?.isMuted ?? null,
+          })
+        ),
         { reliable: true }
       );
       setPttActive(false);
+      pttStartedAtRef.current = null;
       setMessage("Processing your reply...");
     } catch {
       setMessage("Could not mute microphone cleanly.");
@@ -380,6 +424,7 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
         </div>
         {message && <p className="mt-3 text-xs text-zinc-300">{message}</p>}
         {lastHeard && <p className="mt-1 text-xs text-emerald-300">Heard: {lastHeard}</p>}
+        {micDebug && <p className="mt-1 text-xs text-amber-300">{micDebug}</p>}
         {active?.livekit && (
           <div className="mt-3 flex flex-wrap gap-2">
             <button
