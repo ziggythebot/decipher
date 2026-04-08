@@ -98,7 +98,6 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
     if (!publication) return false;
 
     if (muted) {
-      if (publication.isMuted) return true;
       if (typeof publication.mute === "function") {
         await publication.mute();
         return true;
@@ -110,7 +109,6 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
       return false;
     }
 
-    if (!publication.isMuted) return true;
     if (typeof publication.unmute === "function") {
       await publication.unmute();
       return true;
@@ -120,6 +118,26 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
       return true;
     }
     return false;
+  }
+
+  async function waitForMicPublication(targetRoom: Room, timeoutMs = 2500): Promise<boolean> {
+    if (getMicPublication(targetRoom)) return true;
+
+    return await new Promise<boolean>((resolve) => {
+      const timer = window.setTimeout(() => {
+        targetRoom.off(RoomEvent.LocalTrackPublished, handlePublished);
+        resolve(false);
+      }, timeoutMs);
+
+      const handlePublished = (publication: TrackPublication) => {
+        if (publication.source !== Track.Source.Microphone) return;
+        window.clearTimeout(timer);
+        targetRoom.off(RoomEvent.LocalTrackPublished, handlePublished);
+        resolve(true);
+      };
+
+      targetRoom.on(RoomEvent.LocalTrackPublished, handlePublished);
+    });
   }
 
   function clearAttachedAudio() {
@@ -335,11 +353,13 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
       });
       await nextRoom.connect(active.livekit.url, active.livekit.token);
       await nextRoom.localParticipant.setMicrophoneEnabled(true);
-      const micPublished = await setMicMuted(nextRoom, true);
+      const micPublished = await waitForMicPublication(nextRoom);
+      if (!micPublished) {
+        throw new Error("Microphone track was not published after connection.");
+      }
+      const micMuted = await setMicMuted(nextRoom, true);
       setMicDebug(
-        micPublished
-          ? "Mic ready (muted). Hold to Talk to unmute and send."
-          : "Mic could not be muted for push-to-talk."
+        micMuted ? "Mic ready (muted). Hold to Talk to unmute and send." : "Mic ready, mute control unavailable."
       );
       for (const participant of nextRoom.remoteParticipants.values()) {
         attachParticipantAudio(participant);
@@ -385,7 +405,8 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
         setMessage("Microphone track was not published. Reconnect audio and retry.");
         return;
       }
-      await setMicMuted(room, false);
+      const unmuted = await setMicMuted(room, false);
+      setMicDebug(unmuted ? "Mic live while button is held." : "Mic unmute call failed.");
       await room.localParticipant.publishData(
         new TextEncoder().encode(
           JSON.stringify({
@@ -408,7 +429,8 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
       const holdMs = pttStartedAtRef.current ? Date.now() - pttStartedAtRef.current : null;
       const micPublication = getMicPublication(room);
       const micMutedBeforeRelease = micPublication?.isMuted ?? null;
-      await setMicMuted(room, true);
+      const muted = await setMicMuted(room, true);
+      setMicDebug(muted ? "Mic muted. Waiting for transcript..." : "Mic mute call failed.");
       await room.localParticipant.publishData(
         new TextEncoder().encode(
           JSON.stringify({
