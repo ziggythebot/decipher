@@ -101,6 +101,7 @@ export default defineAgent({
 
     const agent = new voice.Agent({
       instructions: systemPrompt,
+      allowInterruptions: false,
       tools: {
         no_op: noOpTool,
       },
@@ -174,6 +175,17 @@ export default defineAgent({
       const payload = {
         type: "agent_error",
         message: errorMessage,
+      };
+      void ctx.room.localParticipant?.publishData(
+        new TextEncoder().encode(JSON.stringify(payload)),
+        { reliable: true }
+      );
+    });
+
+    session.on(voice.AgentSessionEventTypes.AgentStateChanged, (ev) => {
+      const payload = {
+        type: "agent_state",
+        state: ev.newState,
       };
       void ctx.room.localParticipant?.publishData(
         new TextEncoder().encode(JSON.stringify(payload)),
