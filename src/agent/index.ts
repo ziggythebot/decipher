@@ -149,6 +149,18 @@ export default defineAgent({
       );
     });
 
+    ctx.room.on("dataReceived", (payload) => {
+      try {
+        const text = new TextDecoder().decode(payload);
+        const parsed = JSON.parse(text) as { type?: string };
+        if (parsed.type === "ptt_release") {
+          session.commitUserTurn();
+        }
+      } catch {
+        // Ignore non-JSON data messages.
+      }
+    });
+
     await session.start({
       agent,
       room: ctx.room,

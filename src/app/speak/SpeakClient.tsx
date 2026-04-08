@@ -323,6 +323,10 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
     if (!room || !connected || !pttActive) return;
     try {
       await room.localParticipant.setMicrophoneEnabled(false);
+      await room.localParticipant.publishData(
+        new TextEncoder().encode(JSON.stringify({ type: "ptt_release" })),
+        { reliable: true }
+      );
       setPttActive(false);
       setMessage("Mic muted. Hold to talk again.");
     } catch {
