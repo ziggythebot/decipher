@@ -71,6 +71,7 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
   const [connecting, setConnecting] = useState(false);
   const [connected, setConnected] = useState(false);
   const [pttActive, setPttActive] = useState(false);
+  const [lastHeard, setLastHeard] = useState<string | null>(null);
   const audioElementsRef = useRef<Map<string, HTMLAudioElement>>(new Map());
   const manualDisconnectRef = useRef(false);
   const reconnectAttemptsRef = useRef(0);
@@ -193,6 +194,7 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
       scenarioType: data.session.scenarioType,
       livekit: data.livekit,
     });
+    setLastHeard(null);
     setElapsed(0);
     setLoading(false);
     setMessage(
@@ -259,12 +261,18 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
       nextRoom.on(RoomEvent.DataReceived, (payload) => {
         try {
           const text = new TextDecoder().decode(payload);
-          const parsed = JSON.parse(text) as { type?: string; text?: string };
+          const parsed = JSON.parse(text) as { type?: string; text?: string; message?: string };
           if (
             (parsed.type === "user_utterance" || parsed.type === "agent_utterance") &&
             typeof parsed.text === "string"
           ) {
             void persistSessionEvent(sessionId, parsed.type, parsed.text);
+          }
+          if (parsed.type === "user_transcribed" && typeof parsed.text === "string") {
+            setLastHeard(parsed.text);
+          }
+          if (parsed.type === "agent_error" && typeof parsed.message === "string") {
+            setMessage(`Tutor error: ${parsed.message}`);
           }
         } catch {
           // Ignore malformed payloads from remote participants.
@@ -281,7 +289,7 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
       if (!active.livekit.dispatchCreated) {
         setMessage("Connected, but no tutor worker is online yet.");
       } else {
-        setMessage("Connected to voice room. Hold-to-talk is ready.");
+        setMessage("Connected to voice room. Hold to Talk and speak, then release.");
         syncTutorAudioState();
       }
     } catch {
@@ -380,6 +388,7 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
           </button>
         </div>
         {message && <p className="mt-3 text-xs text-zinc-300">{message}</p>}
+        {lastHeard && <p className="mt-1 text-xs text-emerald-300">Heard: {lastHeard}</p>}
         {active?.livekit && (
           <div className="mt-3 flex flex-wrap gap-2">
             <button
