@@ -209,8 +209,22 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
     setMessage(null);
 
     try {
-      const nextRoom = new Room();
-      nextRoom.on("disconnected", () => {
+      if (navigator.mediaDevices?.getUserMedia) {
+        const permissionStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        for (const track of permissionStream.getTracks()) {
+          track.stop();
+        }
+      }
+
+      const nextRoom = new Room({
+        disconnectOnPageLeave: false,
+        audioCaptureDefaults: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+      nextRoom.on("disconnected", (reason) => {
         const unexpectedDisconnect = !manualDisconnectRef.current;
         setConnected(false);
         setRoom(null);
@@ -223,7 +237,7 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
           }, 800);
           return;
         }
-        setMessage("Audio disconnected.");
+        setMessage(`Audio disconnected${reason ? ` (${String(reason)})` : ""}.`);
       });
       nextRoom.on(RoomEvent.TrackSubscribed, (track, publication) => {
         attachTrackAudio(track, publication);
@@ -269,7 +283,7 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
         syncTutorAudioState();
       }
     } catch {
-      setMessage("Could not connect to LiveKit room. Check LIVEKIT env vars and server config.");
+      setMessage("Could not connect microphone/audio. Check browser mic permissions and try again.");
     } finally {
       setConnecting(false);
     }

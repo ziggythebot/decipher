@@ -62,6 +62,7 @@ export default defineAgent({
     const languageName = asString(rawLanguageName, "French");
     const targetLanguage = asString(rawTargetLanguage, "fr");
     const ttsModel = resolveDeepgramTtsModel(targetLanguage, process.env.DEEPGRAM_TTS_MODEL);
+    const sttLanguage = resolveDeepgramSttLanguage(targetLanguage, process.env.DEEPGRAM_STT_LANGUAGE);
 
     const systemPrompt = buildSystemPrompt({
       userName,
@@ -74,7 +75,15 @@ export default defineAgent({
     });
 
     const session = new voice.AgentSession({
-      stt: new deepgram.STT({ apiKey: process.env.DEEPGRAM_API_KEY }),
+      stt: new deepgram.STT({
+        apiKey: process.env.DEEPGRAM_API_KEY,
+        model: "nova-3",
+        language: sttLanguage,
+        detectLanguage: false,
+        interimResults: true,
+        punctuate: true,
+        smartFormat: true,
+      }),
       llm: new openai.LLM({
         model: "claude-opus-4-1-20250805",
         baseURL: "https://api.anthropic.com/v1/",
@@ -106,6 +115,19 @@ export default defineAgent({
           ? { type: "user_utterance", text }
           : { type: "agent_utterance", text };
 
+      void ctx.room.localParticipant?.publishData(
+        new TextEncoder().encode(JSON.stringify(payload)),
+        { reliable: true }
+      );
+    });
+
+    session.on(voice.AgentSessionEventTypes.UserInputTranscribed, (ev) => {
+      if (!ev.transcript || !ev.isFinal) return;
+      const payload = {
+        type: "user_transcribed",
+        text: ev.transcript,
+        language: ev.language,
+      };
       void ctx.room.localParticipant?.publishData(
         new TextEncoder().encode(JSON.stringify(payload)),
         { reliable: true }
@@ -175,6 +197,31 @@ function resolveDeepgramTtsModel(targetLanguage: string, explicitModel?: string)
       return "aura-2-fujin-ja";
     default:
       return "aura-2-thalia-en";
+  }
+}
+
+function resolveDeepgramSttLanguage(targetLanguage: string, explicitLanguage?: string): string {
+  if (explicitLanguage && explicitLanguage.trim().length > 0) {
+    return explicitLanguage.trim();
+  }
+
+  switch (targetLanguage.toLowerCase()) {
+    case "fr":
+      return "fr";
+    case "es":
+      return "es";
+    case "de":
+      return "de";
+    case "it":
+      return "it";
+    case "pt":
+      return "pt";
+    case "nl":
+      return "nl";
+    case "ja":
+      return "ja";
+    default:
+      return "en";
   }
 }
 
