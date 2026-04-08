@@ -2,7 +2,14 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Participant, Room, RoomEvent, Track, TrackPublication } from "livekit-client";
+import {
+  Participant,
+  RemoteTrackPublication,
+  Room,
+  RoomEvent,
+  Track,
+  TrackPublication,
+} from "livekit-client";
 import type { SpeakScenarioSlug } from "@/lib/speak/scenarios";
 
 type Scenario = {
@@ -108,7 +115,9 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
   function attachParticipantAudio(participant: Participant) {
     for (const publication of participant.trackPublications.values()) {
       if (publication.kind !== Track.Kind.Audio) continue;
-      publication.setSubscribed(true);
+      if ("setSubscribed" in publication) {
+        (publication as RemoteTrackPublication).setSubscribed(true);
+      }
       if (publication.track) {
         attachTrackAudio(publication.track, publication);
       }
@@ -212,7 +221,9 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
       nextRoom.on(RoomEvent.TrackPublished, (publication, participant) => {
         if (participant.identity === nextRoom.localParticipant.identity) return;
         if (publication.kind !== Track.Kind.Audio) return;
-        publication.setSubscribed(true);
+        if ("setSubscribed" in publication) {
+          (publication as RemoteTrackPublication).setSubscribed(true);
+        }
       });
       nextRoom.on(RoomEvent.ParticipantConnected, (participant) => {
         attachParticipantAudio(participant);
