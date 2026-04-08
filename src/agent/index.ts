@@ -114,17 +114,10 @@ export default defineAgent({
     let currentTurnId = 0;
 
     function publishData(payload: Record<string, unknown>) {
-      const participant = ctx.room.localParticipant;
-      if (!participant) {
-        console.warn(JSON.stringify({ event: "publish_data_skipped", reason: "no_local_participant" }));
-        return;
-      }
-      void participant
-        .publishData(new TextEncoder().encode(JSON.stringify(payload)), { reliable: true })
-        .catch((error) => {
-          const message = error instanceof Error ? error.message : String(error);
-          console.warn(JSON.stringify({ event: "publish_data_failed", message }));
-        });
+      void ctx.room.localParticipant?.publishData(
+        new TextEncoder().encode(JSON.stringify(payload)),
+        { reliable: true }
+      );
     }
 
     function publishDebugStage(stage: string, extra?: Record<string, unknown>) {
@@ -296,6 +289,7 @@ export default defineAgent({
       agent,
       room: ctx.room,
       inputOptions: {
+        participantIdentity,
         closeOnDisconnect: true,
       },
     });
