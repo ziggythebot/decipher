@@ -303,20 +303,36 @@ export default defineAgent({
           session.clearUserTurn();
         }
         if (parsed.type === "ptt_release") {
+          const holdMs = typeof parsed.holdMs === "number" ? parsed.holdMs : null;
           console.info(
             JSON.stringify({
               event: "ptt_release",
               turnId: currentTurnId,
-              holdMs: parsed.holdMs ?? null,
+              holdMs,
               hasMicPublication: parsed.hasMicPublication ?? null,
               micMutedBeforeRelease: parsed.micMutedBeforeRelease ?? null,
             })
           );
           publishDebugStage("ptt_release_received", {
-            holdMs: parsed.holdMs ?? null,
+            holdMs,
             hasMicPublication: parsed.hasMicPublication ?? null,
             micMutedBeforeRelease: parsed.micMutedBeforeRelease ?? null,
           });
+          if (holdMs !== null && holdMs < 300) {
+            publishData({
+              type: "agent_error",
+              message: "Hold to Talk slightly longer, then release.",
+            });
+            publishDebugStage("ptt_too_short", { holdMs });
+            awaitingManualCommit = false;
+            sawTranscriptThisTurn = false;
+            sawFinalTranscriptThisTurn = false;
+            if (pendingCommitTimer) {
+              clearTimeout(pendingCommitTimer);
+              pendingCommitTimer = null;
+            }
+            return;
+          }
           if (pendingCommitTimer) {
             clearTimeout(pendingCommitTimer);
           }
