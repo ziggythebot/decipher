@@ -11,10 +11,12 @@ RUN apt-get update \
 
 COPY package*.json ./
 COPY prisma ./prisma
+COPY scripts ./scripts
 COPY tsconfig.json ./
 COPY prisma.config.ts ./
 
 RUN npm ci --ignore-scripts --include=dev
+RUN npm run patch:livekit-agents
 
 COPY src ./src
 
