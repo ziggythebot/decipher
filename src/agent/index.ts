@@ -543,5 +543,7 @@ cli.runApp(
     agent: fileURLToPath(import.meta.url),
     agentName: process.env.LIVEKIT_AGENT_NAME ?? "decipher-agent",
     initializeProcessTimeout: 120000,
+    // Keep only one idle process on Fly 512MB instances to avoid worker thrash.
+    numIdleProcesses: 1,
   })
 );
