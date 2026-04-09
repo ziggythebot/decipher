@@ -1,84 +1,110 @@
-# Voice Handoff (2026-04-09)
+# Voice Handoff (2026-04-09 — post-fix verification)
 
-## Status
+## Current State
 
-Root cause of transcription failure identified and fixed. Fix is live on `main` at `649f5c7`.
-Untested on live Fly deployment — this is the first session where the fix is in place.
+- Branch: `main` at `1ca6d7c`
+- Fly worker: version 26, image `deployment-01KNS28NPHM7F318B4TBXADXTY`
+- Vercel: `https://decipher-two.vercel.app`
 
-## The Bug (was)
+## What Is Fixed
 
-`AutoSubscribe.AUDIO_ONLY` in livekit-agents v1.2.3 connects the SFU room with
-`autoSubscribe: false`. It then manually subscribes only to participants already
-present at connect time. Since the worker spawns before the client joins, no
-participants are present → no tracks are ever subscribed → the STT pipeline
-receives zero audio for the entire session.
+**Input edge: fully working.**
 
-This is why `trackPublications: []` appeared consistently in logs at session bind
-time, and why 6 seconds of PTT produced zero `stt_interim` events. All the PTT
-logic, mic_ready gating, mute/unmute experiments were operating correctly on top
-of a silent audio pipeline.
+`7bf8887` added a `trackPublished` listener that calls `setSubscribed(true)` on audio tracks.
+This fixed the root cause: `AutoSubscribe.AUDIO_ONLY` was connecting with `autoSubscribe:false`
+on the SFU and never subscribing late-joining client tracks. STT now receives audio correctly.
 
-## The Fix
+Verified in live session:
+- `stt_interim` events with French words appear in Debug Timeline during PTT
+- `turn_commit_requested` / `turn_commit_sent` fire correctly on release
+- `performLLMInference done` confirmed in worker logs
+- `performTTSInference started/done` confirmed in worker logs
 
-`649f5c7` adds a `trackPublished` listener immediately after `ctx.connect()`:
+## Remaining Bug
 
-```ts
-ctx.room.on("trackPublished", (publication, _participant) => {
-  const AUDIO = 1; // TrackKind.KIND_AUDIO
-  if (publication.kind === AUDIO) {
-    publication.setSubscribed(true);
-  }
-});
+**Output edge: intermittent playback cancellation.**
+
+Worker logs for verified failing session:
+```
+performTTSInference started
+performTTSInference done
+performAudioForwarding started
+firstFrameFut cancelled before first frame
 ```
 
-When the client later joins and publishes their mic, `trackPublished` fires,
-`setSubscribed(true)` is called, the SFU delivers the audio stream, `TrackSubscribed`
-fires in `_input.js`, and the STT pipeline binds to it.
+TTS generates successfully. Audio forwarding starts. But the first frame future is
+cancelled before any audio reaches the client. Tutor reply never plays.
 
-## Current State (649f5c7)
+This is intermittent — not every turn fails. The LLM and TTS pipelines are fine.
+The failure is in the playout/forwarding stage after TTS completes.
 
-- Worker: `trackPublished` fix in place, `session.say()` fires immediately after `session.start()`
-- Client: mute/unmute PTT active (`setMicTrackMuted`), mic starts muted on connect
-- No `mic_ready` gate (removed — was correct in design but timing was unreliable)
-- `pre_session_start` debug event still present — will confirm participant identity on first live test
-- `participantIdentity` still passed to `session.start()` — may or may not matter now
+## What Was Tried (and reverted)
 
-## What to Verify on First Live Test
+Two experimental tweaks were applied after the input fix and then reverted (back to `1ca6d7c`):
+- Details not recorded here — see git log between `7bf8887` and `1ca6d7c`
+- Reverted because they didn't help and introduced risk
 
-In the Debug Timeline, after fixing, expect to see for the first time:
-- `stt_interim` events appearing while PTT is held
-- `stt_final` event just before `turn_commit_requested`
-- `conversation_user_item_added` confirming the transcript was processed
-- `conversation_agent_item_added` with the tutor's response
-- `agent_state • speaking` → tutor audio plays
+The effective baseline is: `7bf8887` subscription fix, without the intermediate experiments.
 
-If `turn_no_speech` still fires after the fix is deployed to Fly, check:
-- Did the Fly worker redeploy? (`fly deploy` needed if auto-deploy isn't wired)
-- Is `pre_session_start` now visible in the debug timeline? If yes, what identity?
+## Diagnosis Starting Point
 
-## Remaining Unknowns
+`firstFrameFut cancelled before first frame` is a livekit-agents internal signal.
+It means the `SpeechHandle` that was queued to play got cancelled/interrupted before
+the audio stream produced its first frame.
 
-1. **Output cancellation** — historical logs showed `firstFrameFut cancelled before first frame`.
-   This was the TTS playout edge. With the input edge fixed, this may surface again.
-   If tutor response text appears (`conversation_agent_item_added`) but no audio plays,
-   this is the next thing to investigate.
+Likely causes to investigate:
+1. **`clearUserTurn()` cancelling inflight speech** — PTT press calls `session.clearUserTurn()`
+   which may be cancelling the tutor's queued reply if PTT is pressed again before playout starts.
+2. **Agent state race** — agent transitions to `listening` and starts a new recognition cycle
+   before the TTS output is forwarded, causing the speech handle to be pre-empted.
+3. **`allowInterruptions: false` not preventing internal cancellation** — this only blocks
+   user-initiated interruptions, not internal state transitions.
+4. **Speech handle lifecycle** — `session.say()` creates one speech handle for the intro;
+   subsequent LLM replies use a different path. Check if handles are being discarded.
 
-2. **participantIdentity filtering** — `setParticipant()` in `_input.js` filters by identity.
-   If `participantIdentity` resolves to a wrong value, STT will still bind to nobody.
-   `pre_session_start` in the debug timeline now shows the resolved value — check it.
+## Recommended Investigation Steps
 
-3. **Mic mute/unmute reliability** — `setMicTrackMuted` using `publication.audioTrack.mute()`
-   may not be reliable across all browsers. If STT works on desktop but not mobile,
-   this is suspect.
+1. Add `debug_stage` events around the livekit-agents speech playout path:
+   - Listen for `SpeechCreated` event (already in code) — log `source` field
+   - Listen for any `SpeechInterrupted` or equivalent event if the SDK exposes one
+   - Correlate with agent state transitions in the Debug Timeline
+
+2. Check timing between `performAudioForwarding started` and any `agent_state • listening`
+   events — if the agent transitions back to listening before the first frame is sent,
+   that may be pre-empting the speech handle.
+
+3. Try adding a short delay between `commitUserTurn` and the next PTT-ready state
+   to prevent rapid press-release cycles from racing with outbound speech.
+
+4. Check livekit-agents `AgentSession` for `SpeechInterrupted` or `SpeechFinished` event
+   types — the SDK may expose the cancellation reason.
 
 ## Key Files
 
-- `src/agent/index.ts` — Fly worker (deploy separately via `fly deploy`)
+- `src/agent/index.ts` — Fly worker
 - `src/app/speak/SpeakClient.tsx` — browser client
 
-## Commit Reference Window
+## Debug Timeline Events (reference)
 
-- `7ef6160` — last observed working transcription (pre-investigation baseline)
-- `8e2dd9b` — mic_ready gate added, debug timeline added
-- `f9ab282` — mute/unmute PTT restored
-- `649f5c7` — **trackPublished fix + mic_ready gate removed (current main)**
+For a successful full turn, expect this sequence:
+```
+ptt_press_received
+stt_interim (one or more)
+stt_final
+turn_commit_requested
+turn_commit_sent
+conversation_user_item_added
+speech_created
+agent_state • speaking
+conversation_agent_item_added
+agent_state • listening
+```
+
+Current failure: everything through `speech_created` fires, then audio never plays
+(`firstFrameFut cancelled` in worker logs, no `agent_state • speaking` in timeline).
+
+## Commit Reference
+
+- `7ef6160` — last pre-investigation baseline
+- `7bf8887` — trackPublished subscription fix (input edge fixed)
+- `1ca6d7c` — current main (reverts of experimental tweaks post-fix)
