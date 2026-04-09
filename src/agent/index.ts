@@ -8,9 +8,7 @@ import {
 } from "@livekit/agents";
 import * as deepgram from "@livekit/agents-plugin-deepgram";
 import * as openai from "@livekit/agents-plugin-openai";
-import { AudioFrame } from "@livekit/rtc-node";
 import { fileURLToPath } from "node:url";
-import { ReadableStream as NodeReadableStream } from "node:stream/web";
 
 // Decipher voice agent — French conversation practice
 // Uses Deepgram STT + Claude (via OpenAI-compat) + Deepgram TTS
@@ -28,7 +26,7 @@ export default defineAgent({
     // Participants who join later have their tracks published but never subscribed, so
     // the STT pipeline receives no audio. This handler fixes that by subscribing to
     // every audio track published after connect.
-    ctx.room.on("trackPublished", (publication, _participant) => {
+    ctx.room.on("trackPublished", (publication: { kind: number; setSubscribed: (v: boolean) => void }, _participant: unknown) => {
       const AUDIO = 1; // TrackKind.KIND_AUDIO from @livekit/rtc-node
       if (publication.kind === AUDIO) {
         publication.setSubscribed(true);
@@ -89,11 +87,6 @@ export default defineAgent({
       languageName,
     });
 
-    const ttsInstance = new deepgram.TTS({
-      apiKey: process.env.DEEPGRAM_API_KEY,
-      model: ttsModel,
-    });
-
     const session = new voice.AgentSession({
       stt: new deepgram.STT({
         apiKey: process.env.DEEPGRAM_API_KEY,
@@ -110,49 +103,16 @@ export default defineAgent({
         apiKey: process.env.ANTHROPIC_API_KEY,
         toolChoice: "none",
       }),
-      tts: ttsInstance,
+      tts: new deepgram.TTS({
+        apiKey: process.env.DEEPGRAM_API_KEY,
+        model: ttsModel,
+      }),
       turnDetection: "manual",
       preemptiveGeneration: false,
       userAwayTimeout: null,
     });
 
-    // Override ttsNode to bypass the StreamAdapterWrapper/DeferredReadableStream pipeline.
-    // The default pipeline buffers LLM text through 5 layers of async streams, causing the
-    // output to close before any text arrives (producing 0 audio frames). By overriding
-    // ttsNode we collect all LLM text first, then call synthesize() directly (HTTP POST).
-    class DecipherAgent extends voice.Agent {
-      override async ttsNode(
-        text: NodeReadableStream<string>,
-        _modelSettings: voice.ModelSettings
-      ): Promise<NodeReadableStream<AudioFrame> | null> {
-        const reader = text.getReader();
-        const chunks: string[] = [];
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            if (value) chunks.push(value);
-          }
-        } finally {
-          reader.releaseLock();
-        }
-        const fullText = chunks.join("").trim();
-        console.info(JSON.stringify({ event: "tts_node", chars: fullText.length, preview: fullText.slice(0, 80) }));
-        if (!fullText) return null;
-        const chunkStream = ttsInstance.synthesize(fullText);
-        return new NodeReadableStream<AudioFrame>({
-          async start(controller) {
-            for await (const audio of chunkStream) {
-              controller.enqueue((audio as { frame: AudioFrame }).frame);
-            }
-            controller.close();
-          },
-          cancel() { chunkStream.close(); },
-        });
-      }
-    }
-
-    const agent = new DecipherAgent({
+    const agent = new voice.Agent({
       instructions: systemPrompt,
       allowInterruptions: false,
       tools: {
@@ -537,14 +497,13 @@ LEARNER PROFILE:
 - Grammar profile: ${JSON.stringify(grammarProfile)}
 
 YOUR RULES:
-1. Speak only in ${languageName}. Do not switch to English unless the learner explicitly asks in English.
+1. Speak primarily in ${languageName}. For beginners (< 100 words known), use 60% ${languageName} / 40% English. For intermediate (100–500 words), use 80% ${languageName}. For advanced (500+), stay in ${languageName} unless stuck.
 2. Use ONLY words the learner is likely to know, plus a few new ones just above their level (i+1 method). Never use obscure vocabulary.
 3. When the learner makes a grammar error, correct it naturally: repeat the correct version in your response without making a big deal of it.
-4. Do not include parenthetical translations or bilingual glosses (for example "(How are you?)"). Explanations must stay in ${languageName}.
+4. After each exchange, if you used a new word the learner may not know, briefly explain it.
 5. Be encouraging. Use phrases like "Exactement!", "Très bien!", "Presque!" (almost!), "Bonne tentative!" (good try!).
 6. Keep responses SHORT — 1-3 sentences max. This is a conversation, not a lecture.
 7. If the learner is stuck, give them a word or phrase to use, then ask them to try again.
-8. Avoid emoji and symbols in spoken responses.
 
 SESSION CONTEXT:
 ${scenarioInstructions}
@@ -584,8 +543,5 @@ cli.runApp(
     agent: fileURLToPath(import.meta.url),
     agentName: process.env.LIVEKIT_AGENT_NAME ?? "decipher-agent",
     initializeProcessTimeout: 120000,
-    // v1.2.4 defaults to 3 idle processes in production. On a 512 MB Fly.io
-    // machine that exhausts memory before any job connects. Cap at 1.
-    numIdleProcesses: 1,
   })
 );
