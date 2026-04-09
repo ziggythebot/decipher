@@ -111,8 +111,9 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
   function getMuteCapableMicTrack(publication: MicPublication | null): MuteCapableTrack | null {
     const candidate = publication?.audioTrack ?? publication?.track ?? null;
     if (!candidate) return null;
-    if (typeof candidate.mute !== "function" || typeof candidate.unmute !== "function") return null;
-    return candidate as MuteCapableTrack;
+    const c = candidate as unknown as { mute?: unknown; unmute?: unknown };
+    if (typeof c.mute !== "function" || typeof c.unmute !== "function") return null;
+    return candidate as unknown as MuteCapableTrack;
   }
 
   async function setMicTrackMuted(targetRoom: Room, muted: boolean): Promise<boolean> {
@@ -598,12 +599,16 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
               onTouchStart={() => void beginPushToTalk()}
               onTouchEnd={() => void endPushToTalk()}
               disabled={!connected}
+              aria-pressed={pttActive}
               className={`rounded-lg px-3 py-2 text-xs font-semibold text-white transition-colors disabled:cursor-not-allowed ${
                 pttActive ? "bg-rose-600 hover:bg-rose-500" : "bg-emerald-600 hover:bg-emerald-500"
               }`}
             >
-              {pttActive ? "Release to Send" : "Hold to Talk"}
+              {pttActive ? "Listening... Release to Send" : "Hold to Talk (Mic Off)"}
             </button>
+            <span className="self-center text-xs text-zinc-400">
+              {pttActive ? "Mic is ON while held." : "Keep holding while you speak."}
+            </span>
             <span className="self-center text-xs text-zinc-500">
               Room: {active.livekit.roomName}
             </span>
