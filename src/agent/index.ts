@@ -280,6 +280,11 @@ export default defineAgent({
           if (pendingCommitTimer) {
             clearTimeout(pendingCommitTimer);
           }
+          const commitDelayMs = sawTranscriptThisTurn ? 1800 : 3000;
+          publishDebugStage("turn_commit_timer_started", {
+            commitDelayMs,
+            sawTranscriptThisTurn,
+          });
           awaitingManualCommit = true;
           pendingCommitTimer = setTimeout(() => {
             if (awaitingManualCommit) {
@@ -291,7 +296,7 @@ export default defineAgent({
               awaitingManualCommit = false;
             }
             pendingCommitTimer = null;
-          }, sawTranscriptThisTurn ? 700 : 2500);
+          }, commitDelayMs);
         }
       } catch {
         // Ignore non-JSON data messages.
