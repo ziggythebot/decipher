@@ -13,6 +13,7 @@ import {
   TrackPublication,
 } from "livekit-client";
 import type { SpeakScenarioSlug } from "@/lib/speak/scenarios";
+import { SCENARIO_MISSIONS } from "@/lib/speak/scenarios";
 
 type Scenario = {
   slug: SpeakScenarioSlug;
@@ -86,6 +87,7 @@ function formatDuration(duration: number | null): string {
 export function SpeakClient({ scenarios, recentSessions }: Props) {
   const router = useRouter();
   const [active, setActive] = useState<ActiveSession | null>(null);
+  const [pendingScenario, setPendingScenario] = useState<SpeakScenarioSlug | null>(null);
   const [loading, setLoading] = useState(false);
   const [ending, setEnding] = useState(false);
   const [elapsed, setElapsed] = useState(0);
@@ -650,6 +652,21 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
             LIVEKIT env vars are missing; session timing works but audio room connection is unavailable.
           </p>
         )}
+        {connected && active?.scenarioType && SCENARIO_MISSIONS[active.scenarioType] && (
+          <div className="mt-3 border-t border-zinc-800 pt-3">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">Hint phrases</p>
+            <div className="flex flex-wrap gap-2">
+              {SCENARIO_MISSIONS[active.scenarioType].hintChips.map((chip) => (
+                <span
+                  key={chip}
+                  className="rounded-full border border-indigo-700 bg-indigo-900/50 px-3 py-1 text-xs font-medium text-indigo-200"
+                >
+                  {chip}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-900 p-3">
@@ -678,7 +695,7 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
             <button
               type="button"
               disabled={!!active || loading}
-              onClick={() => startSession(scenario.slug)}
+              onClick={() => setPendingScenario(scenario.slug)}
               className="mt-4 w-full rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-zinc-700"
             >
               {active ? "Session Active" : loading ? "Starting..." : "Start Session"}
@@ -686,6 +703,54 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
           </article>
         ))}
       </div>
+
+      {pendingScenario && (() => {
+        const mission = SCENARIO_MISSIONS[pendingScenario];
+        const scenarioTitle = scenarios.find((s) => s.slug === pendingScenario)?.title ?? pendingScenario;
+        if (!mission) return null;
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+            <div className="w-full max-w-md rounded-2xl border border-zinc-700 bg-zinc-900 p-6 shadow-2xl">
+              <p className="text-xs font-semibold uppercase tracking-wider text-indigo-400">Mission briefing</p>
+              <h2 className="mt-1 text-xl font-bold text-zinc-100">{scenarioTitle}</h2>
+              <p className="mt-2 text-sm text-zinc-400">{mission.openingMove}</p>
+              <div className="mt-4">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">Key words to use</p>
+                <div className="space-y-1">
+                  {mission.targetWords.map(({ word, meaning }) => (
+                    <div key={word} className="flex items-baseline justify-between gap-2 rounded-lg bg-zinc-800 px-3 py-2">
+                      <span className="font-medium text-zinc-100">{word}</span>
+                      <span className="text-xs text-zinc-400">{meaning}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <p className="mt-4 text-xs text-zinc-500">
+                Don&apos;t worry — your tutor will guide you. Hint phrases appear during the session if you get stuck.
+              </p>
+              <div className="mt-5 flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPendingScenario(null);
+                    void startSession(pendingScenario);
+                  }}
+                  className="flex-1 rounded-xl bg-indigo-600 py-3 text-sm font-bold text-white transition-colors hover:bg-indigo-500"
+                >
+                  Let&apos;s go
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPendingScenario(null)}
+                  className="rounded-xl bg-zinc-700 px-4 py-3 text-sm font-semibold text-zinc-300 transition-colors hover:bg-zinc-600"
+                >
+                  Not yet
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       <section className="mt-10">
         <h2 className="text-lg font-bold">Recent Sessions</h2>
