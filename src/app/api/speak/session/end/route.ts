@@ -195,8 +195,7 @@ export async function POST(request: Request) {
   }
 
   const minutes = Math.floor(durationSec / 60);
-  let xpGain = XP.CONVO_SESSION + minutes * XP.CONVO_MINUTE + newWordsCount * XP.CONVO_NEW_WORD_USED;
-  xpGain = XP.CONVO_SESSION + minutes * XP.CONVO_MINUTE + effectiveNewWordsCount * XP.CONVO_NEW_WORD_USED;
+  let xpGain = XP.CONVO_SESSION + minutes * XP.CONVO_MINUTE + effectiveNewWordsCount * XP.CONVO_NEW_WORD_USED;
 
   if (streakDays === 3) xpGain += XP.STREAK_3_DAYS;
   if (streakDays === 7) xpGain += XP.STREAK_7_DAYS;

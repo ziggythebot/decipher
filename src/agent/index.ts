@@ -8,14 +8,9 @@ import {
 } from "@livekit/agents";
 import * as deepgram from "@livekit/agents-plugin-deepgram";
 import * as openai from "@livekit/agents-plugin-openai";
+import { type AudioFrame } from "@livekit/rtc-node";
 import { fileURLToPath } from "node:url";
-
-// Decipher voice agent — French conversation practice
-// Uses Deepgram STT + Claude (via OpenAI-compat) + Deepgram TTS
-const noOpTool = llm.tool({
-  description: "Internal no-op tool for provider compatibility.",
-  execute: async () => "ok",
-});
+import { ReadableStream as NodeReadableStream } from "node:stream/web";
 
 export default defineAgent({
   entry: async (ctx) => {
@@ -26,7 +21,7 @@ export default defineAgent({
     // Participants who join later have their tracks published but never subscribed, so
     // the STT pipeline receives no audio. This handler fixes that by subscribing to
     // every audio track published after connect.
-    ctx.room.on("trackPublished", (publication: { kind: number; setSubscribed: (v: boolean) => void }, _participant: unknown) => {
+    ctx.room.on("trackPublished", (publication: { kind: number | undefined; setSubscribed: (v: boolean) => void }, _participant: unknown) => {
       const AUDIO = 1; // TrackKind.KIND_AUDIO from @livekit/rtc-node
       if (publication.kind === AUDIO) {
         publication.setSubscribed(true);
@@ -87,6 +82,11 @@ export default defineAgent({
       languageName,
     });
 
+    const ttsInstance = new deepgram.TTS({
+      apiKey: process.env.DEEPGRAM_API_KEY,
+      model: ttsModel,
+    });
+
     const session = new voice.AgentSession({
       stt: new deepgram.STT({
         apiKey: process.env.DEEPGRAM_API_KEY,
@@ -98,26 +98,70 @@ export default defineAgent({
         smartFormat: true,
       }),
       llm: new openai.LLM({
-        model: "claude-opus-4-1-20250805",
+        model: "claude-sonnet-4-6",
         baseURL: "https://api.anthropic.com/v1/",
         apiKey: process.env.ANTHROPIC_API_KEY,
-        toolChoice: "none",
       }),
-      tts: new deepgram.TTS({
-        apiKey: process.env.DEEPGRAM_API_KEY,
-        model: ttsModel,
-      }),
+      tts: ttsInstance,
       turnDetection: "manual",
       preemptiveGeneration: false,
       userAwayTimeout: null,
     });
 
-    const agent = new voice.Agent({
+    // Override ttsNode to bypass StreamAdapterWrapper/DeferredReadableStream pipeline.
+    // The default pipeline's DeferredReadableStream.pump() has a silent bug: it calls
+    // WritableStream.close() (which doesn't exist — only WritableStreamDefaultWriter.close()
+    // exists), so the transform stream never closes, pumpInput() blocks forever, and
+    // the output produces 0 audio frames. By overriding ttsNode we collect all LLM text
+    // then call synthesize() directly (HTTP POST to Deepgram), bypassing all that.
+    class DecipherAgent extends voice.Agent {
+      // Override llmNode to pass null toolCtx. The framework always passes toolCtx={}
+      // when no tools are defined, which serialises to tools:[] in the API request.
+      // Anthropic's compat layer rejects tools:[] ("List should have at least 1 item").
+      // Passing null causes inference/llm.js to set tools=undefined, which is omitted
+      // from the JSON body entirely, and also removes tool_choice from the request.
+      override async llmNode(
+        chatCtx: llm.ChatContext,
+        _toolCtx: llm.ToolContext,
+        modelSettings: voice.ModelSettings
+      ): Promise<NodeReadableStream<llm.ChatChunk | string> | null> {
+        return super.llmNode(chatCtx, null as unknown as llm.ToolContext, modelSettings);
+      }
+
+      override async ttsNode(
+        text: NodeReadableStream<string>,
+        _modelSettings: voice.ModelSettings
+      ): Promise<NodeReadableStream<AudioFrame> | null> {
+        const reader = text.getReader();
+        const chunks: string[] = [];
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (value) chunks.push(value);
+          }
+        } finally {
+          reader.releaseLock();
+        }
+        const fullText = chunks.join("").trim();
+        console.info(JSON.stringify({ event: "tts_node", chars: fullText.length, preview: fullText.slice(0, 80) }));
+        if (!fullText) return null;
+        const chunkStream = ttsInstance.synthesize(fullText);
+        return new NodeReadableStream<AudioFrame>({
+          async start(controller) {
+            for await (const audio of chunkStream) {
+              controller.enqueue((audio as { frame: AudioFrame }).frame);
+            }
+            controller.close();
+          },
+          cancel() { chunkStream.close(); },
+        });
+      }
+    }
+
+    const agent = new DecipherAgent({
       instructions: systemPrompt,
       allowInterruptions: false,
-      tools: {
-        no_op: noOpTool,
-      },
     });
     let pendingCommitTimer: NodeJS.Timeout | null = null;
     let awaitingManualCommit = false;
@@ -343,10 +387,7 @@ export default defineAgent({
     publishDebugStage("session_started", {
       participantIdentity: participantIdentity ?? null,
     });
-    session.say(
-      "Bonjour! On commence. Tu veux commander un cafe maintenant ?",
-      { allowInterruptions: false }
-    );
+    session.say(buildGreeting(languageName, scenarioType), { allowInterruptions: false });
 
     await new Promise<void>((resolve) => {
       const done = () => resolve();
@@ -497,18 +538,45 @@ LEARNER PROFILE:
 - Grammar profile: ${JSON.stringify(grammarProfile)}
 
 YOUR RULES:
-1. Speak mostly in ${languageName}. Do not include parenthetical English translations unless the learner explicitly asks for one.
-2. Use ONLY words the learner is likely to know, plus a few new ones just above their level (i+1 method). Never use obscure vocabulary.
-3. When the learner makes a grammar error, correct it naturally: repeat the correct version in your response without making a big deal of it.
-4. After each exchange, if you used a new word the learner may not know, briefly explain it in ${languageName}.
-5. Be encouraging. Use phrases like "Exactement!", "Très bien!", "Presque!" (almost!), "Bonne tentative!" (good try!).
-6. Keep responses SHORT — 1-3 sentences max. This is a conversation, not a lecture.
-7. If the learner is stuck, give them a word or phrase to use, then ask them to try again.
+1. Speak ONLY in ${languageName}. No English at all. No translations. No parenthetical explanations.
+2. Use ONLY words the learner is likely to know, plus a few new ones just above their level. Never use obscure vocabulary.
+3. When the learner makes a grammar error, correct it naturally by repeating the correct version in your response.
+4. Be encouraging. Use short phrases like "Exactement!", "Très bien!", "Presque!", "Bonne tentative!".
+5. Keep responses SHORT — 1-2 sentences max. This is a spoken conversation.
+6. If the learner is stuck, give them a single word or phrase to try.
+7. CRITICAL: Plain text only. No asterisks, no bold, no markdown, no emoji, no special characters. Your output goes directly to text-to-speech.
 
 SESSION CONTEXT:
 ${scenarioInstructions}
 
 Start the session with a warm greeting in ${languageName} and immediately set up the scenario.`;
+}
+
+// Per-language, per-scenario opening line spoken immediately via TTS (no LLM latency).
+// The LLM picks up the scenario from the system prompt for all subsequent turns.
+const SCENARIO_GREETINGS: Record<string, Record<string, string>> = {
+  French: {
+    ordering_coffee: "Bonjour! Bienvenue au café. Qu'est-ce que vous désirez?",
+    meeting_someone: "Bonjour! C'est une belle conférence, non?",
+    shopping: "Bonjour! Je peux vous aider?",
+    asking_directions: "Bonjour! Vous avez l'air perdu. Je peux vous aider?",
+    restaurant: "Bonsoir! Bienvenue. Voici notre menu.",
+  },
+  Portuguese: {
+    ordering_coffee: "Olá! Bem-vindo ao café. O que vai querer?",
+    meeting_someone: "Olá! É uma ótima conferência, não é?",
+    shopping: "Olá! Posso ajudar?",
+    asking_directions: "Olá! Parece perdido. Posso ajudar?",
+    restaurant: "Boa noite! Bem-vindo. Aqui está o nosso menu.",
+  },
+};
+
+function buildGreeting(languageName: string, scenarioType: string): string {
+  return (
+    SCENARIO_GREETINGS[languageName]?.[scenarioType] ??
+    SCENARIO_GREETINGS["French"]?.[scenarioType] ??
+    "Bonjour! On commence."
+  );
 }
 
 const SCENARIOS = {

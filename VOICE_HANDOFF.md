@@ -1,92 +1,51 @@
-# Voice Handoff (2026-04-09 — post-fix verification)
+# Voice Handoff (2026-04-10 — fully working, tagged voice-baseline-v1)
 
 ## Current State
 
-- Branch: `main` at `1ca6d7c`
-- Fly worker: version 26, image `deployment-01KNS28NPHM7F318B4TBXADXTY`
+- Branch: `main`
+- Fly worker: upgraded to @livekit/agents v1.2.4, deployed 2026-04-09
 - Vercel: `https://decipher-two.vercel.app`
 
 ## What Is Fixed
 
-**Input edge: fully working.**
+### Input edge (fixed 7bf8887)
+`trackPublished` listener calls `setSubscribed(true)` on audio tracks.
+Fixed root cause: `AutoSubscribe.AUDIO_ONLY` was connecting with `autoSubscribe:false`
+and never subscribing late-joining client tracks.
 
-`7bf8887` added a `trackPublished` listener that calls `setSubscribed(true)` on audio tracks.
-This fixed the root cause: `AutoSubscribe.AUDIO_ONLY` was connecting with `autoSubscribe:false`
-on the SFU and never subscribing late-joining client tracks. STT now receives audio correctly.
+### Output edge (fixed 2026-04-09 — upgrade to v1.2.4)
 
-Verified in live session:
-- `stt_interim` events with French words appear in Debug Timeline during PTT
-- `turn_commit_requested` / `turn_commit_sent` fire correctly on release
-- `performLLMInference done` confirmed in worker logs
-- `performTTSInference started/done` confirmed in worker logs
+**Root cause: `AudioSource` ring buffer overflow.**
 
-## Remaining Bug
+When Deepgram TTS generates audio significantly faster than real-time (2–10×
+burst), the `AudioSource` ring buffer (default `queueSizeMs = 1000` = 1 second)
+overflows. The native layer silently discards the **oldest frames** — which are
+the beginning of the agent's speech.
 
-**Output edge: intermittent playback cancellation.**
+In v1.2.3, `ParticipantAudioOutput` was NOT passing `options.queueSizeMs` to the
+`AudioSource` constructor — the ring buffer always used the 1-second default
+regardless of any configuration. livekit/agents-js PR #1207 (v1.2.4) fixed this.
 
-Worker logs for verified failing session:
-```
-performTTSInference started
-performTTSInference done
-performAudioForwarding started
-firstFrameFut cancelled before first frame
-```
+The `firstFrameFut cancelled before first frame` log means:
+1. TTS generates all frames in a burst
+2. Ring buffer fills and starts dropping oldest frames
+3. Audio forwarding loop exits (ring buffer closed/errored) before the first
+   frame event fires
+4. `firstFrameFut` is rejected in the `finally` block
 
-TTS generates successfully. Audio forwarding starts. But the first frame future is
-cancelled before any audio reaches the client. Tutor reply never plays.
+**Fix**: Upgraded `@livekit/agents` and all plugins from 1.2.3 → 1.2.4.
+Also bumped `@livekit/agents-plugin-elevenlabs` to 1.2.4 (peer dep conflict).
 
-This is intermittent — not every turn fails. The LLM and TTS pipelines are fine.
-The failure is in the playout/forwarding stage after TTS completes.
+Two TypeScript type changes required for the upgrade:
+- `src/agent/index.ts`: `trackPublished` callback `publication` param — removed
+  explicit type annotation (let TS infer `RemoteTrackPublication`), since
+  `TrackKind` is now `TrackKind | undefined` not `number`.
+- `src/app/speak/SpeakClient.tsx`: `getMuteCapableMicTrack()` — cast through
+  `unknown` for mute/unmute runtime check since `Track<Kind>` no longer exposes
+  those methods in its TypeScript type.
 
-## What Was Tried (and reverted)
+## Expected Debug Timeline (full successful turn)
 
-Two experimental tweaks were applied after the input fix and then reverted (back to `1ca6d7c`):
-- Details not recorded here — see git log between `7bf8887` and `1ca6d7c`
-- Reverted because they didn't help and introduced risk
-
-The effective baseline is: `7bf8887` subscription fix, without the intermediate experiments.
-
-## Diagnosis Starting Point
-
-`firstFrameFut cancelled before first frame` is a livekit-agents internal signal.
-It means the `SpeechHandle` that was queued to play got cancelled/interrupted before
-the audio stream produced its first frame.
-
-Likely causes to investigate:
-1. **`clearUserTurn()` cancelling inflight speech** — PTT press calls `session.clearUserTurn()`
-   which may be cancelling the tutor's queued reply if PTT is pressed again before playout starts.
-2. **Agent state race** — agent transitions to `listening` and starts a new recognition cycle
-   before the TTS output is forwarded, causing the speech handle to be pre-empted.
-3. **`allowInterruptions: false` not preventing internal cancellation** — this only blocks
-   user-initiated interruptions, not internal state transitions.
-4. **Speech handle lifecycle** — `session.say()` creates one speech handle for the intro;
-   subsequent LLM replies use a different path. Check if handles are being discarded.
-
-## Recommended Investigation Steps
-
-1. Add `debug_stage` events around the livekit-agents speech playout path:
-   - Listen for `SpeechCreated` event (already in code) — log `source` field
-   - Listen for any `SpeechInterrupted` or equivalent event if the SDK exposes one
-   - Correlate with agent state transitions in the Debug Timeline
-
-2. Check timing between `performAudioForwarding started` and any `agent_state • listening`
-   events — if the agent transitions back to listening before the first frame is sent,
-   that may be pre-empting the speech handle.
-
-3. Try adding a short delay between `commitUserTurn` and the next PTT-ready state
-   to prevent rapid press-release cycles from racing with outbound speech.
-
-4. Check livekit-agents `AgentSession` for `SpeechInterrupted` or `SpeechFinished` event
-   types — the SDK may expose the cancellation reason.
-
-## Key Files
-
-- `src/agent/index.ts` — Fly worker
-- `src/app/speak/SpeakClient.tsx` — browser client
-
-## Debug Timeline Events (reference)
-
-For a successful full turn, expect this sequence:
 ```
 ptt_press_received
 stt_interim (one or more)
@@ -100,11 +59,14 @@ conversation_agent_item_added
 agent_state • listening
 ```
 
-Current failure: everything through `speech_created` fires, then audio never plays
-(`firstFrameFut cancelled` in worker logs, no `agent_state • speaking` in timeline).
+## Key Files
+
+- `src/agent/index.ts` — Fly worker
+- `src/app/speak/SpeakClient.tsx` — browser client
 
 ## Commit Reference
 
 - `7ef6160` — last pre-investigation baseline
 - `7bf8887` — trackPublished subscription fix (input edge fixed)
-- `1ca6d7c` — current main (reverts of experimental tweaks post-fix)
+- `1ca6d7c` — stable point before output investigation
+- post-1ca6d7c — v1.2.4 upgrade (output edge fixed)

@@ -100,6 +100,12 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
   const audioElementsRef = useRef<Map<string, HTMLAudioElement>>(new Map());
   const pttStartedAtRef = useRef<number | null>(null);
   const explicitMicTrackRef = useRef<LocalAudioTrack | null>(null);
+  // Refs mirror state so beforeunload / room-event handlers always see current values
+  // without needing to re-register on every render.
+  const activeRef = useRef<ActiveSession | null>(null);
+  const elapsedRef = useRef<number>(0);
+  activeRef.current = active;
+  elapsedRef.current = elapsed;
 
   function getMicPublication(targetRoom: Room): MicPublication | null {
     const publication = Array.from(targetRoom.localParticipant.trackPublications.values()).find(
@@ -222,6 +228,24 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
     };
   }, [room, audioElementsRef]);
 
+  // Fire session end via sendBeacon on tab close / navigation away.
+  // sendBeacon is the only reliable way to POST on unload — fetch is cancelled.
+  useEffect(() => {
+    function handleBeforeUnload() {
+      const a = activeRef.current;
+      if (!a) return;
+      navigator.sendBeacon(
+        "/api/speak/session/end",
+        new Blob(
+          [JSON.stringify({ sessionId: a.id, durationSec: elapsedRef.current })],
+          { type: "application/json" }
+        )
+      );
+    }
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, []);
+
   async function persistSessionEvent(
     sessionId: string,
     type: "user_utterance" | "agent_utterance" | "error",
@@ -302,7 +326,19 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
         setConnected(false);
         setRoom(null);
         clearAttachedAudio();
-        setMessage("Audio disconnected.");
+        // If the session wasn't already ended via the button (e.g. unexpected disconnect,
+        // Fly worker restart), fire session end so XP and transcript are always saved.
+        const a = activeRef.current;
+        if (a) {
+          setActive(null);
+          void fetch("/api/speak/session/end", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ sessionId: a.id, durationSec: elapsedRef.current }),
+          }).then(() => router.refresh()).catch(() => null);
+        } else {
+          setMessage("Audio disconnected.");
+        }
       });
       nextRoom.on(RoomEvent.TrackSubscribed, (track, publication) => {
         attachTrackAudio(track, publication);
@@ -548,11 +584,6 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
 
   return (
     <>
-      <div className="mt-6 rounded-xl border border-sky-500/30 bg-sky-500/10 p-4 text-sm text-sky-200">
-        Session lifecycle is now active: start/end a scenario and track duration + XP.
-        LiveKit room launch is wired; transcript/error enrichment remains in progress.
-      </div>
-
       <div className="mt-6 rounded-xl border border-zinc-800 bg-zinc-900 p-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
