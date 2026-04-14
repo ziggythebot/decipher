@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { XpBar } from "@/components/game/XpBar";
+import { UserNav } from "@/components/auth/UserNav";
 
 type Props = {
   user: {
@@ -56,18 +57,21 @@ export function DashboardClient({ user, stats }: Props) {
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
       <div className="max-w-2xl mx-auto px-4 py-8">
-        {/* Header */}
+        {/* Top nav */}
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-2xl font-black">{flag} Learning {langName}</h1>
             <p className="text-zinc-400 text-sm mt-0.5">{user.goalType} fluency</p>
           </div>
-          {daysToDeadline !== null && (
-            <div className="text-right">
-              <div className="text-2xl font-black text-orange-400">{daysToDeadline}</div>
-              <div className="text-xs text-zinc-500">days left</div>
-            </div>
-          )}
+          <div className="flex items-center gap-4">
+            {daysToDeadline !== null && (
+              <div className="text-right">
+                <div className="text-2xl font-black text-orange-400">{daysToDeadline}</div>
+                <div className="text-xs text-zinc-500">days left</div>
+              </div>
+            )}
+            <UserNav />
+          </div>
         </div>
 
         {/* XP bar */}
