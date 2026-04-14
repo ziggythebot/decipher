@@ -3,16 +3,13 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { usePrivy } from "@privy-io/react-auth";
-
-const hasPrivyAppId = Boolean(process.env.NEXT_PUBLIC_PRIVY_APP_ID);
+import { usePrivyMounted } from "@/components/providers/PrivyAuthProvider";
 
 export function HomeAuthActions() {
-  if (!hasPrivyAppId) {
-    return (
-      <p className="text-xs text-amber-300">
-        Privy not configured. Set `NEXT_PUBLIC_PRIVY_APP_ID` and `PRIVY_APP_SECRET`.
-      </p>
-    );
+  const privyMounted = usePrivyMounted();
+
+  if (!privyMounted) {
+    return <p className="text-xs text-zinc-400">Loading...</p>;
   }
 
   return <HomeAuthActionsWithPrivy />;

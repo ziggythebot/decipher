@@ -1,40 +1,43 @@
 "use client";
 
-import { useState, useEffect, type ReactNode } from "react";
+import { useState, useEffect, createContext, useContext, type ReactNode } from "react";
 import { PrivyProvider } from "@privy-io/react-auth";
 
-type Props = {
-  children: ReactNode;
-};
+// Signals to child components that PrivyProvider is in the tree and safe to
+// call usePrivy(). Starts false on server and initial client render to prevent
+// usePrivy() being called without a provider context.
+const PrivyMountedContext = createContext(false);
+export const usePrivyMounted = () => useContext(PrivyMountedContext);
 
 const appId = process.env.NEXT_PUBLIC_PRIVY_APP_ID ?? "";
 
-export function PrivyAuthProvider({ children }: Props) {
+export function PrivyAuthProvider({ children }: { children: ReactNode }) {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  // Don't render PrivyProvider on the server or during the initial hydration
-  // pass — Privy validates the app ID during instantiation and throws in SSR.
-  // Both server and initial client render return bare children (no mismatch).
-  if (!appId || !mounted) {
-    return <>{children}</>;
-  }
+  const privyReady = Boolean(appId) && mounted;
 
   return (
-    <PrivyProvider
-      appId={appId}
-      config={{
-        loginMethods: ["email", "google", "apple"],
-        appearance: {
-          theme: "dark",
-          accentColor: "#4f46e5",
-        },
-      }}
-    >
-      {children}
-    </PrivyProvider>
+    <PrivyMountedContext.Provider value={privyReady}>
+      {privyReady ? (
+        <PrivyProvider
+          appId={appId}
+          config={{
+            loginMethods: ["email", "google", "apple"],
+            appearance: {
+              theme: "dark",
+              accentColor: "#4f46e5",
+            },
+          }}
+        >
+          {children}
+        </PrivyProvider>
+      ) : (
+        children
+      )}
+    </PrivyMountedContext.Provider>
   );
 }

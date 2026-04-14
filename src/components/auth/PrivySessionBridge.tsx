@@ -2,13 +2,11 @@
 
 import { useEffect, useRef } from "react";
 import { usePrivy } from "@privy-io/react-auth";
-
-const hasPrivyAppId = Boolean(process.env.NEXT_PUBLIC_PRIVY_APP_ID);
+import { usePrivyMounted } from "@/components/providers/PrivyAuthProvider";
 
 export function PrivySessionBridge() {
-  if (!hasPrivyAppId) {
-    return null;
-  }
+  const privyMounted = usePrivyMounted();
+  if (!privyMounted) return null;
   return <PrivySessionBridgeInner />;
 }
 
