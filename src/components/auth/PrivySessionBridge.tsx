@@ -3,11 +3,10 @@
 import { useEffect, useRef } from "react";
 import { usePrivy } from "@privy-io/react-auth";
 
-const privyAppId = process.env.NEXT_PUBLIC_PRIVY_APP_ID ?? "";
-const hasValidPrivyAppId = /^cl[a-z0-9]+$/i.test(privyAppId);
+const hasPrivyAppId = Boolean(process.env.NEXT_PUBLIC_PRIVY_APP_ID);
 
 export function PrivySessionBridge() {
-  if (!hasValidPrivyAppId) {
+  if (!hasPrivyAppId) {
     return null;
   }
   return <PrivySessionBridgeInner />;

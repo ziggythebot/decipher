@@ -8,11 +8,10 @@ type Props = {
 };
 
 const appId = process.env.NEXT_PUBLIC_PRIVY_APP_ID ?? "";
-const isValidPrivyAppId = /^cl[a-z0-9]+$/i.test(appId);
 
 export function PrivyAuthProvider({ children }: Props) {
-  if (!appId || !isValidPrivyAppId) {
-    console.warn("Privy disabled: missing or invalid NEXT_PUBLIC_PRIVY_APP_ID");
+  if (!appId) {
+    console.warn("Privy disabled: missing NEXT_PUBLIC_PRIVY_APP_ID");
     return <>{children}</>;
   }
 

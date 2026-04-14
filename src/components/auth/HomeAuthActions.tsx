@@ -4,14 +4,13 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { usePrivy } from "@privy-io/react-auth";
 
-const privyAppId = process.env.NEXT_PUBLIC_PRIVY_APP_ID ?? "";
-const hasValidPrivyAppId = /^cl[a-z0-9]+$/i.test(privyAppId);
+const hasPrivyAppId = Boolean(process.env.NEXT_PUBLIC_PRIVY_APP_ID);
 
 export function HomeAuthActions() {
-  if (!hasValidPrivyAppId) {
+  if (!hasPrivyAppId) {
     return (
       <p className="text-xs text-amber-300">
-        Privy not configured with a valid App ID. Check `NEXT_PUBLIC_PRIVY_APP_ID`.
+        Privy not configured. Set `NEXT_PUBLIC_PRIVY_APP_ID` and `PRIVY_APP_SECRET`.
       </p>
     );
   }
