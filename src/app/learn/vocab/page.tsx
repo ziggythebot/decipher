@@ -62,16 +62,19 @@ export default async function VocabPage() {
           take: 10,
         });
 
-        // Create UserVocabulary entries for new words
-        const newVocab = await Promise.all(
-          newWords.map((w) =>
-            db.userVocabulary.create({
-              data: { userId: user.id, wordId: w.id },
-              include: { word: true },
-            })
-          )
-        );
-        cards = newVocab;
+        // Create UserVocabulary entries for new words — skipDuplicates handles
+        // concurrent requests racing to assign the same words.
+        await db.userVocabulary.createMany({
+          data: newWords.map((w) => ({ userId: user.id, wordId: w.id })),
+          skipDuplicates: true,
+        });
+
+        // Fetch back with word data after creation
+        cards = await db.userVocabulary.findMany({
+          where: { userId: user.id, wordId: { in: newWords.map((w) => w.id) } },
+          include: { word: true },
+          orderBy: { word: { frequencyRank: "asc" } },
+        });
       }
     } catch {
       cards = [];
