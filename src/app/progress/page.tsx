@@ -1,14 +1,23 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { levelTitle } from "@/lib/xp";
 import type { CategoryCounts, ErrorCategory } from "@/lib/speak/analytics";
-import { getOrCreateSessionUser } from "@/lib/session-user";
+import { AuthRequiredError, getOrCreateSessionUser } from "@/lib/session-user";
 
 export const dynamic = "force-dynamic";
 const VOICE_ONLY_MODE = process.env.VOICE_ONLY_MODE === "1";
 
 export default async function ProgressPage() {
-  const user = await getOrCreateSessionUser();
+  let user;
+  try {
+    user = await getOrCreateSessionUser({ requireAuth: true });
+  } catch (error) {
+    if (error instanceof AuthRequiredError) {
+      redirect("/");
+    }
+    throw error;
+  }
   const now = new Date();
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 

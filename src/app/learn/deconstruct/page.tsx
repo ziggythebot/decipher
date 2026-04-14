@@ -1,12 +1,21 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { FRENCH_DECONSTRUCTION_DOZEN } from "@/data/deconstruction-dozen";
-import { getOrCreateSessionUser } from "@/lib/session-user";
+import { AuthRequiredError, getOrCreateSessionUser } from "@/lib/session-user";
 import { CompleteButton } from "./CompleteButton";
 
 export const dynamic = "force-dynamic";
 
 export default async function DeconstructPage() {
-  const user = await getOrCreateSessionUser();
+  let user;
+  try {
+    user = await getOrCreateSessionUser({ requireAuth: true });
+  } catch (error) {
+    if (error instanceof AuthRequiredError) {
+      redirect("/");
+    }
+    throw error;
+  }
 
   const completed = user.grammarProfile?.deconstructionDone ?? false;
 

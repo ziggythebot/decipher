@@ -1,12 +1,21 @@
 import { db } from "@/lib/db";
-import { getOrCreateSessionUser } from "@/lib/session-user";
+import { redirect } from "next/navigation";
+import { AuthRequiredError, getOrCreateSessionUser } from "@/lib/session-user";
 import { DashboardClient } from "./DashboardClient";
 
 export const dynamic = "force-dynamic";
 const VOICE_ONLY_MODE = process.env.VOICE_ONLY_MODE === "1";
 
 export default async function DashboardPage() {
-  const user = await getOrCreateSessionUser();
+  let user;
+  try {
+    user = await getOrCreateSessionUser({ requireAuth: true });
+  } catch (error) {
+    if (error instanceof AuthRequiredError) {
+      redirect("/");
+    }
+    throw error;
+  }
   const now = new Date();
   const daysToDeadline = user.deadlineDate
     ? Math.max(0, Math.ceil((user.deadlineDate.getTime() - now.getTime()) / 86400000))

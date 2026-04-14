@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { HomeAuthActions } from "@/components/auth/HomeAuthActions";
 
 export default function Home() {
   return (
@@ -18,12 +19,7 @@ export default function Home() {
         </p>
 
         <div className="mt-10 grid gap-3 sm:grid-cols-2 md:max-w-2xl">
-          <Link
-            href="/dashboard"
-            className="rounded-xl bg-indigo-600 px-5 py-4 text-center text-sm font-bold transition-colors hover:bg-indigo-500"
-          >
-            Open Dashboard
-          </Link>
+          <HomeAuthActions />
           <Link
             href="/learn/vocab"
             className="rounded-xl border border-zinc-700 bg-zinc-900 px-5 py-4 text-center text-sm font-bold transition-colors hover:border-zinc-500"

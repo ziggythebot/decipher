@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { ACHIEVEMENTS } from "@/lib/achievements";
 import { XP, levelFromTotalXp } from "@/lib/xp";
-import { getOrCreateSessionUser } from "@/lib/session-user";
+import { AuthRequiredError, getOrCreateSessionUser } from "@/lib/session-user";
 
 function startOfUtcDay(date: Date): Date {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
@@ -42,8 +42,16 @@ async function unlockAchievement(
   return dbAchievement.xpReward + XP.ACHIEVEMENT_UNLOCK;
 }
 
-export async function POST() {
-  const user = await getOrCreateSessionUser();
+export async function POST(request: Request) {
+  let user;
+  try {
+    user = await getOrCreateSessionUser({ request });
+  } catch (error) {
+    if (error instanceof AuthRequiredError) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    throw error;
+  }
 
   const now = new Date();
   const alreadyCompleted = user.grammarProfile?.deconstructionDone ?? false;

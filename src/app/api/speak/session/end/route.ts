@@ -8,7 +8,7 @@ import {
   extractCorrectedForms,
   summarizeErrorCategories,
 } from "@/lib/speak/analytics";
-import { getOrCreateSessionUser } from "@/lib/session-user";
+import { AuthRequiredError, getOrCreateSessionUser } from "@/lib/session-user";
 const VOICE_ONLY_MODE = process.env.VOICE_ONLY_MODE === "1";
 
 type Body = {
@@ -126,7 +126,15 @@ export async function POST(request: Request) {
     });
   }
 
-  const user = await getOrCreateSessionUser();
+  let user;
+  try {
+    user = await getOrCreateSessionUser({ request });
+  } catch (error) {
+    if (error instanceof AuthRequiredError) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    throw error;
+  }
 
   const session = await db.conversationSession.findFirst({
     where: {

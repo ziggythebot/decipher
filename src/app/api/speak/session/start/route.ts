@@ -3,7 +3,7 @@ import { AgentDispatchClient } from "livekit-server-sdk";
 import { db } from "@/lib/db";
 import { SPEAK_SCENARIO_SLUGS } from "@/lib/speak/scenarios";
 import { createLiveKitToken } from "@/lib/livekit/token";
-import { getOrCreateSessionUser } from "@/lib/session-user";
+import { AuthRequiredError, getOrCreateSessionUser } from "@/lib/session-user";
 
 type Body = {
   scenarioType?: string;
@@ -26,7 +26,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unknown scenario" }, { status: 400 });
   }
 
-  const user = await getOrCreateSessionUser();
+  let user;
+  try {
+    user = await getOrCreateSessionUser({ request });
+  } catch (error) {
+    if (error instanceof AuthRequiredError) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    throw error;
+  }
 
   let knownVocab: Array<{ word: { word: string } }> = [];
   let session: {

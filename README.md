@@ -60,7 +60,7 @@ Designed for ADHD brains — dopamine loops that reinforce actual learning, not 
 |---|---|
 | Framework | Next.js 16 (App Router) |
 | Database | PostgreSQL via Prisma 7 |
-| Auth | Mothballed (local dev session user) |
+| Auth | Privy (multi-user), with local dev fallback when Privy env vars are unset |
 | Spaced repetition | ts-fsrs (FSRS-5 algorithm) |
 | Voice pipeline | LiveKit Agents 1.x |
 | Speech-to-text | Deepgram |
@@ -101,7 +101,13 @@ Create a `.env` file:
 # Database
 DATABASE_URL="postgresql://user:password@localhost:5432/decipher"
 
-# Local dev session user (auth mothballed)
+# Privy auth (required for multi-user mode)
+NEXT_PUBLIC_PRIVY_APP_ID=...
+PRIVY_APP_SECRET=...
+# Session signing secret for app-owned httpOnly cookie
+AUTH_SESSION_SECRET=...
+
+# Local dev fallback identity (used only when Privy vars are unset)
 DEV_CLERK_ID=dev-local-user
 DEV_EMAIL=dev-local-user@local.dev
 
@@ -116,6 +122,9 @@ DEEPGRAM_API_KEY=...
 ELEVENLABS_API_KEY=...
 ELEVENLABS_VOICE_ID_FR=pNInz6obpgDQGcFmaJgB   # optional — defaults to Adam
 ```
+
+For SSR route protection (`/dashboard`, `/learn/*`, `/speak`, `/progress`), configure Privy to
+issue the `privy-token` cookie in your environment.
 
 ### Database setup
 

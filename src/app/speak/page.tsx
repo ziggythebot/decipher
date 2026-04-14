@@ -1,14 +1,23 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { SPEAK_SCENARIOS } from "@/lib/speak/scenarios";
-import { getOrCreateSessionUser } from "@/lib/session-user";
+import { AuthRequiredError, getOrCreateSessionUser } from "@/lib/session-user";
 import { SpeakClient } from "./SpeakClient";
 
 export const dynamic = "force-dynamic";
 const VOICE_ONLY_MODE = process.env.VOICE_ONLY_MODE === "1";
 
 export default async function SpeakPage() {
-  const user = await getOrCreateSessionUser();
+  let user;
+  try {
+    user = await getOrCreateSessionUser({ requireAuth: true });
+  } catch (error) {
+    if (error instanceof AuthRequiredError) {
+      redirect("/");
+    }
+    throw error;
+  }
 
   let vocabCount = 0;
   let sessionCount = 0;

@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { ACHIEVEMENTS } from "@/lib/achievements";
 import { XP, levelFromTotalXp } from "@/lib/xp";
 import { scheduleReview, type Rating } from "@/lib/srs/rating";
-import { getOrCreateSessionUser } from "@/lib/session-user";
+import { AuthRequiredError, getOrCreateSessionUser } from "@/lib/session-user";
 
 type Body = {
   vocabId?: string;
@@ -69,7 +69,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Rating must be 1-4" }, { status: 400 });
   }
 
-  const user = await getOrCreateSessionUser();
+  let user;
+  try {
+    user = await getOrCreateSessionUser({ request });
+  } catch (error) {
+    if (error instanceof AuthRequiredError) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    throw error;
+  }
 
   const vocab = await db.userVocabulary.findFirst({
     where: {

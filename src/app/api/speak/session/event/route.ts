@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getOrCreateSessionUser } from "@/lib/session-user";
+import { AuthRequiredError, getOrCreateSessionUser } from "@/lib/session-user";
 
 type Body = {
   sessionId?: string;
@@ -41,7 +41,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, skippedPersistence: true });
   }
 
-  const user = await getOrCreateSessionUser();
+  let user;
+  try {
+    user = await getOrCreateSessionUser({ request });
+  } catch (error) {
+    if (error instanceof AuthRequiredError) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    throw error;
+  }
 
   const session = await db.conversationSession.findFirst({
     where: {
