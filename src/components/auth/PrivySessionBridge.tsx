@@ -3,10 +3,11 @@
 import { useEffect, useRef } from "react";
 import { usePrivy } from "@privy-io/react-auth";
 
-const hasPrivyAppId = Boolean(process.env.NEXT_PUBLIC_PRIVY_APP_ID);
+const privyAppId = process.env.NEXT_PUBLIC_PRIVY_APP_ID ?? "";
+const hasValidPrivyAppId = /^cl[a-z0-9]+$/i.test(privyAppId);
 
 export function PrivySessionBridge() {
-  if (!hasPrivyAppId) {
+  if (!hasValidPrivyAppId) {
     return null;
   }
   return <PrivySessionBridgeInner />;
@@ -20,8 +21,10 @@ function PrivySessionBridgeInner() {
     if (!ready) return;
 
     if (!authenticated) {
-      bootstrappedForRef.current = null;
-      void fetch("/api/auth/logout", { method: "POST" }).catch(() => null);
+      if (bootstrappedForRef.current !== null) {
+        void fetch("/api/auth/logout", { method: "POST" }).catch(() => null);
+        bootstrappedForRef.current = null;
+      }
       return;
     }
 
