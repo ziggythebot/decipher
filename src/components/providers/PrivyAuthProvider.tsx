@@ -45,7 +45,7 @@ export function PrivyAuthProvider({ children }: { children: ReactNode }) {
           <PrivyProvider
             appId={appId}
             config={{
-              loginMethods: ["email", "google", "apple"],
+              loginMethods: ["email", "google", "twitter"],
               appearance: {
                 theme: "dark",
                 accentColor: "#4f46e5",
