@@ -54,33 +54,68 @@ export default defineAgent({
     const {
       userName: rawUserName,
       knownWords: rawKnownWords,
+      weakWords: rawWeakWords,
       grammarProfile: rawGrammarProfile,
       goalType: rawGoalType,
       sessionMode: rawSessionMode,
       scenarioType: rawScenarioType,
       languageName: rawLanguageName,
       targetLanguage: rawTargetLanguage,
+      sessionObjective: rawSessionObjective,
     } = metadata;
     const userName = asString(rawUserName, "learner");
     const knownWords = asStringArray(rawKnownWords);
+    const weakWords = asStringArray(rawWeakWords);
     const grammarProfile = asRecord(rawGrammarProfile);
     const goalType = asString(rawGoalType, "social");
     const sessionMode = asString(rawSessionMode, "guided");
     const scenarioType = asString(rawScenarioType, "ordering_coffee");
     const languageName = asString(rawLanguageName, "French");
     const targetLanguage = asString(rawTargetLanguage, "fr");
+    const sessionObjective = asSessionObjective(rawSessionObjective);
     const ttsModel = resolveDeepgramTtsModel(targetLanguage, process.env.DEEPGRAM_TTS_MODEL);
     const sttLanguage = resolveDeepgramSttLanguage(targetLanguage, process.env.DEEPGRAM_STT_LANGUAGE);
 
     const systemPrompt = buildSystemPrompt({
       userName,
       knownWords,
+      weakWords,
       grammarProfile,
       goalType,
       sessionMode,
       scenarioType,
       languageName,
+      sessionObjective,
     });
+
+    const sessionId = asString(metadata.sessionId, "");
+    const internalUrl = process.env.NEXTJS_INTERNAL_URL ?? "";
+    const internalSecret = process.env.INTERNAL_API_SECRET ?? "";
+
+    async function flushUsage(patch: {
+      inputTokensDelta?: number;
+      outputTokensDelta?: number;
+      ttsCharsDelta?: number;
+      sttSeconds?: number;
+    }) {
+      if (!sessionId || !internalUrl || !internalSecret) return;
+      try {
+        await fetch(`${internalUrl}/api/internal/usage`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Internal-Secret": internalSecret,
+          },
+          body: JSON.stringify({ sessionId, ...patch }),
+        });
+      } catch {
+        // Non-fatal — best effort tracking
+      }
+    }
+
+    let accumulatedTtsChars = 0;
+    let sttActiveStart: number | null = null;
+    let totalSttSeconds = 0;
 
     const ttsInstance = new deepgram.TTS({
       apiKey: process.env.DEEPGRAM_API_KEY,
@@ -125,7 +160,52 @@ export default defineAgent({
         _toolCtx: llm.ToolContext,
         modelSettings: voice.ModelSettings
       ): Promise<NodeReadableStream<llm.ChatChunk | string> | null> {
-        return super.llmNode(chatCtx, null as unknown as llm.ToolContext, modelSettings);
+        // Estimate input tokens from chatCtx items text (4 chars ≈ 1 token)
+        const inputChars = chatCtx.items.reduce((sum, item) => {
+          const c = (item as unknown as { content?: unknown }).content;
+          if (typeof c === "string") return sum + c.length;
+          if (Array.isArray(c)) return sum + (c as Array<unknown>).map((p) => (typeof p === "string" ? p : ((p as { text?: string }).text ?? ""))).join("").length;
+          return sum;
+        }, 0);
+        const inputTokensEst = Math.ceil(inputChars / 4);
+
+        const upstream = await super.llmNode(chatCtx, null as unknown as llm.ToolContext, modelSettings);
+        if (!upstream) return upstream;
+
+        // Wrap the upstream stream to count output chars and flush after the turn
+        let outputChars = 0;
+        let usageFromChunk: { inputTokens: number; outputTokens: number } | null = null;
+        const reader = upstream.getReader();
+        return new NodeReadableStream<llm.ChatChunk | string>({
+          async pull(controller) {
+            const { done, value } = await reader.read();
+            if (done) {
+              controller.close();
+              // Prefer SDK-reported usage if present, else use character estimates
+              const finalInput = usageFromChunk?.inputTokens ?? inputTokensEst;
+              const finalOutput = usageFromChunk?.outputTokens ?? Math.ceil(outputChars / 4);
+              void flushUsage({ inputTokensDelta: finalInput, outputTokensDelta: finalOutput });
+              return;
+            }
+            if (value) {
+              if (typeof value === "object" && value !== null) {
+                const chunk = value as llm.ChatChunk;
+                if (chunk.usage) {
+                  usageFromChunk = {
+                    inputTokens: chunk.usage.promptTokens,
+                    outputTokens: chunk.usage.completionTokens,
+                  };
+                }
+                const text = chunk.delta?.content ?? "";
+                if (text) outputChars += text.length;
+              } else if (typeof value === "string") {
+                outputChars += value.length;
+              }
+              controller.enqueue(value);
+            }
+          },
+          cancel() { reader.cancel(); },
+        });
       }
 
       override async ttsNode(
@@ -146,6 +226,10 @@ export default defineAgent({
         const fullText = chunks.join("").trim();
         console.info(JSON.stringify({ event: "tts_node", chars: fullText.length, preview: fullText.slice(0, 80) }));
         if (!fullText) return null;
+        if (fullText.length > 0) {
+          accumulatedTtsChars += fullText.length;
+          void flushUsage({ ttsCharsDelta: fullText.length });
+        }
         const chunkStream = ttsInstance.synthesize(fullText);
         return new NodeReadableStream<AudioFrame>({
           async start(controller) {
@@ -287,6 +371,7 @@ export default defineAgent({
         };
         if (parsed.type === "ptt_press") {
           currentTurnId = ++turnCounter;
+          sttActiveStart = Date.now();
           console.info(
             JSON.stringify({
               event: "ptt_press",
@@ -322,6 +407,11 @@ export default defineAgent({
             hasMicPublication: parsed.hasMicPublication ?? null,
             micMutedBeforeRelease: parsed.micMutedBeforeRelease ?? null,
           });
+          if (sttActiveStart !== null) {
+            const elapsed = (Date.now() - sttActiveStart) / 1000;
+            totalSttSeconds += elapsed;
+            sttActiveStart = null;
+          }
           if (holdMs !== null && holdMs < 300) {
             publishData({
               type: "agent_error",
@@ -396,6 +486,48 @@ export default defineAgent({
         done();
       });
     });
+
+    // Final flush: send accumulated STT seconds on session end
+    if (totalSttSeconds > 0) {
+      await flushUsage({ sttSeconds: totalSttSeconds });
+    }
+
+    // Session complete: flush learning data back to the Next.js app
+    if (sessionId && internalUrl && internalSecret) {
+      // Collect all words that appeared in conversation turns
+      const wordsEncountered: string[] = [];
+      for (const item of session.chatCtx.items) {
+        const content = (item as unknown as { content?: unknown }).content;
+        const text = typeof content === "string" ? content : Array.isArray(content)
+          ? (content as Array<unknown>).map((p) => typeof p === "string" ? p : ((p as { text?: string }).text ?? "")).join(" ")
+          : "";
+        if (text && sessionObjective?.targetVocab) {
+          for (const v of sessionObjective.targetVocab) {
+            if (text.toLowerCase().includes(v.word.toLowerCase()) && !wordsEncountered.includes(v.word)) {
+              wordsEncountered.push(v.word);
+            }
+          }
+        }
+      }
+
+      try {
+        await fetch(`${internalUrl}/api/internal/session-complete`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Internal-Secret": internalSecret,
+          },
+          body: JSON.stringify({
+            sessionId,
+            wordsEncountered,
+            patternUses: 0, // turn-level counting added in Phase 4
+            errorsLogged: [],
+          }),
+        });
+      } catch {
+        // Non-fatal
+      }
+    }
   },
 });
 
@@ -494,6 +626,27 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 }
 
+type SessionObjective = {
+  targetPattern: {
+    id: string;
+    description: string;
+    exampleFr: string;
+    requiredUses: number;
+  } | null;
+  targetVocab: {
+    word: string;
+    translation: string;
+    frequencyRank: number;
+    isWeak: boolean;
+  }[];
+  errorFocus: string[];
+} | null;
+
+function asSessionObjective(value: unknown): SessionObjective {
+  if (!value || typeof value !== "object") return null;
+  return value as SessionObjective;
+}
+
 function getLearnerMetadata(ctx: { room: { metadata?: string; remoteParticipants?: unknown } }): Record<string, unknown> {
   const roomMetadata = parseMetadata(ctx.room.metadata);
   if (Object.keys(roomMetadata).length > 0) return roomMetadata;
@@ -512,21 +665,68 @@ function getLearnerMetadata(ctx: { room: { metadata?: string; remoteParticipants
 function buildSystemPrompt(opts: {
   userName: string;
   knownWords: string[];
+  weakWords: string[];
   grammarProfile: Record<string, unknown>;
   goalType: string;
   sessionMode: string;
   scenarioType: string;
   languageName: string;
+  sessionObjective: SessionObjective;
 }): string {
-  const { userName, knownWords, grammarProfile, goalType, sessionMode, scenarioType, languageName } = opts;
+  const { userName, knownWords, weakWords, grammarProfile, goalType, sessionMode, scenarioType, languageName, sessionObjective } = opts;
 
   const wordCount = knownWords.length;
   const wordListSample = knownWords.slice(0, 50).join(", ");
 
-  const scenarioInstructions =
-    sessionMode === "guided"
-      ? SCENARIOS[scenarioType as keyof typeof SCENARIOS] ?? SCENARIOS.ordering_coffee
-      : "This is a freeform conversation. Talk naturally about anything. Follow the learner's lead.";
+  let scenarioInstructions: string;
+  if (sessionMode !== "guided") {
+    scenarioInstructions = "This is a freeform conversation. Talk naturally about anything. Follow the learner's lead.";
+  } else if (scenarioType === "struggle_bus" && weakWords.length > 0) {
+    scenarioInstructions = `SCENARIO: Struggle Bus — targeted vocabulary drilling.
+The learner has identified these words as tricky for them: ${weakWords.join(", ")}.
+Your goal: weave these specific words naturally into the conversation over the next few minutes.
+Don't quiz them directly — instead, use each word in a natural sentence and pause for them to respond using it.
+If they get a word right, praise them and move on. If they stumble, use the word again later.
+Keep the conversation flowing naturally — pick a relaxed setting (a walk, a café, chatting about their day).`;
+  } else if (scenarioType === "struggle_bus") {
+    scenarioInstructions = `SCENARIO: Struggle Bus — conversational vocabulary practice.
+The learner wants to drill their weakest words through natural conversation.
+Have a relaxed chat about their day or interests, and gently introduce vocabulary that challenges them just above their current level.
+Revisit any word they seem uncertain about.`;
+  } else {
+    scenarioInstructions = SCENARIOS[scenarioType as keyof typeof SCENARIOS] ?? SCENARIOS.ordering_coffee;
+  }
+
+  // Build session objective block
+  let objectiveBlock = "";
+  if (sessionObjective?.targetPattern || (sessionObjective?.targetVocab?.length ?? 0) > 0) {
+    const parts: string[] = [];
+
+    if (sessionObjective?.targetPattern) {
+      const p = sessionObjective.targetPattern;
+      parts.push(`TARGET PATTERN: "${p.description}"
+Example: ${p.exampleFr}
+REQUIRED: steer the conversation so the learner uses this pattern at least ${p.requiredUses} times.
+If the learner avoids it for 2+ turns, ask a question that requires them to use it.`);
+    }
+
+    if (sessionObjective?.targetVocab?.length) {
+      const vocabList = sessionObjective.targetVocab
+        .map((v) => `${v.word} (${v.translation})${v.isWeak ? " [weak — reinforce]" : ""}`)
+        .join(", ");
+      parts.push(`TARGET VOCABULARY: ${vocabList}
+Weave these words naturally into the conversation. Introduce no more than 1 new word per turn.
+Prioritise [weak] words — use them multiple times.`);
+    }
+
+    if (sessionObjective?.errorFocus?.length) {
+      parts.push(`KNOWN ERRORS TO ADDRESS: ${sessionObjective.errorFocus.join("; ")}
+If any of these come up, correct them clearly and have the learner repeat the correct form.`);
+    }
+
+    objectiveBlock = `\nSESSION OBJECTIVE — FOLLOW THIS:
+${parts.join("\n\n")}\n`;
+  }
 
   return `You are a ${languageName} conversation tutor. You are warm, encouraging, and patient — but efficient. No wasted words.
 
@@ -545,7 +745,7 @@ YOUR RULES:
 5. Keep responses SHORT — 1-2 sentences max. This is a spoken conversation.
 6. If the learner is stuck, give them a single word or phrase to try.
 7. CRITICAL: Plain text only. No asterisks, no bold, no markdown, no emoji, no special characters. Your output goes directly to text-to-speech.
-
+${objectiveBlock}
 SESSION CONTEXT:
 ${scenarioInstructions}
 
@@ -556,11 +756,13 @@ Start the session with a warm greeting in ${languageName} and immediately set up
 // The LLM picks up the scenario from the system prompt for all subsequent turns.
 const SCENARIO_GREETINGS: Record<string, Record<string, string>> = {
   French: {
+    struggle_bus: "Bonjour! On va pratiquer ensemble. Parlons un peu.",
     ordering_coffee: "Bonjour! Bienvenue au café. Qu'est-ce que vous désirez?",
     meeting_someone: "Bonjour! C'est une belle conférence, non?",
     shopping: "Bonjour! Je peux vous aider?",
     asking_directions: "Bonjour! Vous avez l'air perdu. Je peux vous aider?",
     restaurant: "Bonsoir! Bienvenue. Voici notre menu.",
+    road_rage: "Putain! Encore les embouteillages! Montez, montez, on n'a pas toute la journée!",
   },
   Portuguese: {
     ordering_coffee: "Olá! Bem-vindo ao café. O que vai querer?",
@@ -604,6 +806,26 @@ Key vocabulary: à gauche, à droite, tout droit, près de, loin, rue, métro.`,
 Setting: You are a waiter at a brasserie.
 Flow: Welcome → Menu options → Order → Dietary needs → Enjoyment check.
 Key vocabulary: menu, plat, entrée, dessert, recommander, végétarien, délicieux.`,
+
+  road_rage: `SCENARIO: Rude Mode — Paris Road Rage.
+You are JEAN-PIERRE, a Parisian taxi driver. Rush hour. You've been cut off three times. A tourist (the learner) has just flagged you down and is now in your cab. You are ALREADY furious.
+
+CRITICAL RULES:
+1. You speak French — but as your anger escalates you start mixing in broken, mangled English ("What ze fuck?!", "You are ze idiot!", "I cannot believe zis!"). More anger = more broken English creeping in.
+2. Track your own anger level from 1 to 5 internally:
+   - Level 1: Grumpy, muttering, but professional ("Bah, encore les embouteillages...")
+   - Level 2: Visibly annoyed, complaining loudly ("C'est n'importe quoi ce pays!")
+   - Level 3: Ranting, gesturing wildly ("Putain! Vous voyez ça?! PUTAIN!")
+   - Level 4: Losing it, broken English emerging ("ZIS city is MERDE! What ze hell is zis?!")
+   - Level 5: Full meltdown, mostly broken English, honking imaginary horn ("CASSE-TOI! GET OUT OF ZE WAY! MON DIEU!")
+3. If the learner is CALM, apologetic, or uses polite French → de-escalate by 1 level per turn.
+4. If the learner is RUDE, swears back, or argues → escalate by 1-2 levels.
+5. If the learner swears at YOU directly → jump to level 5 immediately and threaten to kick them out.
+6. Stay in character. Jean-Pierre has opinions about everything: other drivers, the government, tourists, the weather, his ex-wife.
+7. Keep responses SHORT and punchy — this is road rage, not a lecture.
+8. CRITICAL: No markdown, no asterisks. Plain text only — this goes to text-to-speech.
+
+Start at anger level 2. You're stuck in traffic on Boulevard Haussmann and someone just cut you off.`,
 };
 
 cli.runApp(

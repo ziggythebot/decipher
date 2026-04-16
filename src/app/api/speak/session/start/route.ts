@@ -4,10 +4,12 @@ import { db } from "@/lib/db";
 import { SPEAK_SCENARIO_SLUGS } from "@/lib/speak/scenarios";
 import { createLiveKitToken } from "@/lib/livekit/token";
 import { AuthRequiredError, getOrCreateSessionUser } from "@/lib/session-user";
+import { getActiveLanguage, getLanguageMeta } from "@/lib/language/catalog";
+import { buildSessionObjective } from "@/lib/session-planner";
 
 type Body = {
   scenarioType?: string;
-  mode?: "guided" | "freeform";
+  mode?: "guided" | "freeform" | "rude";
 };
 const VOICE_ONLY_MODE = process.env.VOICE_ONLY_MODE === "1";
 
@@ -19,7 +21,7 @@ export async function POST(request: Request) {
     body = {};
   }
 
-  const mode = body.mode === "freeform" ? "freeform" : "guided";
+  const mode = body.mode === "freeform" ? "freeform" : body.mode === "rude" ? "rude" : "guided";
   const scenarioType = typeof body.scenarioType === "string" ? body.scenarioType : "ordering_coffee";
 
   if (mode === "guided" && !SPEAK_SCENARIO_SLUGS.has(scenarioType)) {
@@ -36,13 +38,40 @@ export async function POST(request: Request) {
     throw error;
   }
 
+  // Block check
+  if (user.isBlocked) {
+    return NextResponse.json({ error: "Account suspended" }, { status: 403 });
+  }
+
+  // Monthly token budget gate (concurrency-safe)
+  if (user.monthlyTokenBudget !== null) {
+    const now = new Date();
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const agg = await db.conversationSession.aggregate({
+      where: { userId: user.id, createdAt: { gte: monthStart } },
+      _sum: { inputTokens: true, outputTokens: true },
+    });
+    const usedTokens = (agg._sum.inputTokens ?? 0) + (agg._sum.outputTokens ?? 0);
+    if (usedTokens >= user.monthlyTokenBudget) {
+      return NextResponse.json({ error: "Monthly token budget exceeded" }, { status: 429 });
+    }
+  }
+
   let knownVocab: Array<{ word: { word: string } }> = [];
+  let weakWords: string[] = [];
   let session: {
     id: string;
     createdAt: Date;
     mode: string;
     scenarioType: string | null;
   };
+
+  // Build session objective from FSRS state + grammar profile (skip for rude mode)
+  const activeLanguageEarly = getActiveLanguage(user);
+  const sessionObjective =
+    mode !== "rude"
+      ? await buildSessionObjective(user.id, activeLanguageEarly).catch(() => null)
+      : null;
 
   if (VOICE_ONLY_MODE) {
     session = {
@@ -53,19 +82,40 @@ export async function POST(request: Request) {
     };
   } else {
     try {
-      knownVocab = await db.userVocabulary.findMany({
-        where: { userId: user.id, state: { gt: 0 } },
-        include: { word: { select: { word: true } } },
-        orderBy: { word: { frequencyRank: "asc" } },
-        take: 200,
-      });
+      const queries: [
+        Promise<Array<{ word: { word: string } }>>,
+        Promise<Array<{ word: { word: string; translation: string } }>> | Promise<never[]>,
+      ] = [
+        db.userVocabulary.findMany({
+          where: { userId: user.id, state: { gt: 0 } },
+          include: { word: { select: { word: true } } },
+          orderBy: { word: { frequencyRank: "asc" } },
+          take: 200,
+        }),
+        scenarioType === "struggle_bus"
+          ? db.userVocabulary.findMany({
+              where: { userId: user.id, state: { gte: 1 }, lapses: { gt: 0 } },
+              include: { word: { select: { word: true, translation: true } } },
+              orderBy: { lapses: "desc" },
+              take: 10,
+            })
+          : Promise.resolve([]),
+      ];
+
+      const [knownVocabResult, weakVocabResult] = await Promise.all(queries);
+      knownVocab = knownVocabResult;
+      weakWords = (weakVocabResult as Array<{ word: { word: string; translation: string } }>).map(
+        (v) => `${v.word.word} (${v.word.translation})`
+      );
 
       session = await db.conversationSession.create({
         data: {
           userId: user.id,
           mode,
+          languageCode: user.targetLanguage || "fr",
           scenarioType: mode === "guided" ? scenarioType : null,
           wordsEncountered: [],
+          sessionObjective: sessionObjective ?? undefined,
         },
         select: {
           id: true,
@@ -85,6 +135,10 @@ export async function POST(request: Request) {
     }
   }
 
+  const activeLanguage = getActiveLanguage(user);
+  const langMeta = getLanguageMeta(activeLanguage);
+  const activeGrammarProfile = user.grammarProfiles.find((p) => p.languageCode === activeLanguage) ?? null;
+
   const livekitUrl = process.env.LIVEKIT_URL ?? null;
   const livekitApiKey = process.env.LIVEKIT_API_KEY ?? null;
   const livekitApiSecret = process.env.LIVEKIT_API_SECRET ?? null;
@@ -94,26 +148,18 @@ export async function POST(request: Request) {
   if (livekitUrl && livekitApiKey && livekitApiSecret) {
     const roomName = `decipher-${user.id}-${session.id}`;
     const identity = `learner-${user.id}-${session.id}`;
-    const languageName =
-      user.targetLanguage === "fr"
-        ? "French"
-        : user.targetLanguage === "es"
-          ? "Spanish"
-          : user.targetLanguage === "pt"
-            ? "Portuguese"
-            : user.targetLanguage === "de"
-              ? "German"
-              : user.targetLanguage;
     const participantMetadata = JSON.stringify({
       userName: user.email ? user.email.split("@")[0] : identity,
       knownWords: knownVocab.map((entry) => entry.word.word),
-      grammarProfile: user.grammarProfile?.patternScores ?? {},
+      weakWords,
+      grammarProfile: activeGrammarProfile?.patternScores ?? {},
       goalType: user.goalType,
       sessionMode: mode,
-      scenarioType: mode === "guided" ? scenarioType : "freeform",
-      languageName,
-      targetLanguage: user.targetLanguage,
+      scenarioType: mode === "guided" || mode === "rude" ? scenarioType : "freeform",
+      languageName: langMeta.name,
+      targetLanguage: activeLanguage,
       sessionId: session.id,
+      sessionObjective: sessionObjective ?? null,
     });
 
     const token = createLiveKitToken({
