@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { motion } from "framer-motion";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { XpBar } from "@/components/game/XpBar";
 import { UserNav } from "@/components/auth/UserNav";
 
@@ -16,10 +18,14 @@ type Props = {
     goalType: string;
     daysToDeadline: number | null;
     grammarDone: boolean;
+    patternsCompleted: number;
+    totalPatterns: number;
+    nextPatternId: string | null;
   };
   stats: {
     vocabCount: number;
     dueToday: number;
+    newWordsQueued: number;
     sessionCount: number;
   };
 };
@@ -47,11 +53,22 @@ export function DashboardClient({ user, stats }: Props) {
 
   const fluencyPct = Math.min(100, Math.floor((stats.vocabCount / 1200) * 100));
 
+  const patternsDone = user.patternsCompleted >= user.totalPatterns;
+  const nextPatternHref = user.nextPatternId
+    ? `/learn/patterns/${user.nextPatternId}`
+    : "/learn/patterns";
+
   // Determine what the user should do next
   const primaryAction = !user.grammarDone
     ? { href: "/learn/deconstruct", label: "Start Deconstruction →", color: "bg-indigo-600 hover:bg-indigo-500", desc: "Unlock the grammar framework first — takes 20 min" }
+    : !patternsDone && user.patternsCompleted === 0
+    ? { href: nextPatternHref, label: "Learn Sentence Patterns →", color: "bg-violet-600 hover:bg-violet-500", desc: `${user.totalPatterns} frames that unlock real conversation — 3 min each` }
     : stats.dueToday > 0
-    ? { href: "/learn/vocab", label: `Review ${stats.dueToday} cards due →`, color: "bg-green-600 hover:bg-green-500", desc: "Your daily vocab review is ready" }
+    ? { href: "/learn/vocab/review", label: `Review ${stats.dueToday} cards due →`, color: "bg-indigo-600 hover:bg-indigo-500", desc: "Your spaced repetition review is ready" }
+    : !patternsDone
+    ? { href: nextPatternHref, label: `Continue Patterns (${user.patternsCompleted}/${user.totalPatterns}) →`, color: "bg-violet-600 hover:bg-violet-500", desc: "Unlock more sentence frames to target in voice sessions" }
+    : stats.newWordsQueued > 0
+    ? { href: "/learn/vocab/learn", label: "Learn New Words →", color: "bg-green-600 hover:bg-green-500", desc: `${stats.newWordsQueued} words queued and ready` }
     : { href: "/speak", label: "Start Conversation →", color: "bg-purple-600 hover:bg-purple-500", desc: "Practice speaking with your AI tutor" };
 
   return (
@@ -137,33 +154,76 @@ export function DashboardClient({ user, stats }: Props) {
         </div>
 
         {/* Quick actions */}
-        <div className="grid grid-cols-2 gap-3 mt-6">
-          <Link href="/learn/vocab" className="bg-zinc-900 border border-zinc-800 hover:border-zinc-600 rounded-xl p-4 transition-colors">
-            <div className="text-2xl mb-2">📖</div>
-            <div className="font-semibold text-sm">Vocab Session</div>
+        <div className="grid grid-cols-3 gap-3 mt-6">
+          <Link href="/learn/vocab/learn" className="bg-zinc-900 border border-zinc-800 hover:border-green-700 rounded-xl p-4 transition-colors">
+            <div className="text-2xl mb-2">🌱</div>
+            <div className="font-semibold text-sm">Learn</div>
             <div className="text-zinc-500 text-xs mt-1">
-              {stats.dueToday > 0 ? `${stats.dueToday} cards due` : "All caught up"}
+              {stats.newWordsQueued > 0 ? `${stats.newWordsQueued} queued` : "New words"}
             </div>
           </Link>
+          <Link href="/learn/vocab/review" className="bg-zinc-900 border border-zinc-800 hover:border-indigo-700 rounded-xl p-4 transition-colors">
+            <div className="text-2xl mb-2">🔁</div>
+            <div className="font-semibold text-sm">Review</div>
+            <div className="text-zinc-500 text-xs mt-1">
+              {stats.dueToday > 0 ? `${stats.dueToday} due` : "All caught up"}
+            </div>
+          </Link>
+          <Link href="/learn/vocab" className="bg-zinc-900 border border-zinc-800 hover:border-zinc-600 rounded-xl p-4 transition-colors">
+            <div className="text-2xl mb-2">📚</div>
+            <div className="font-semibold text-sm">Vocab</div>
+            <div className="text-zinc-500 text-xs mt-1">Hub & scan</div>
+          </Link>
+        </div>
+        <div className="grid grid-cols-3 gap-3 mt-3">
           <Link href="/speak" className="bg-zinc-900 border border-zinc-800 hover:border-zinc-600 rounded-xl p-4 transition-colors">
             <div className="text-2xl mb-2">🎙️</div>
             <div className="font-semibold text-sm">Speak Now</div>
-            <div className="text-zinc-500 text-xs mt-1">AI conversation practice</div>
+            <div className="text-zinc-500 text-xs mt-1">AI conversation</div>
           </Link>
-          <Link href="/learn/deconstruct" className="bg-zinc-900 border border-zinc-800 hover:border-zinc-600 rounded-xl p-4 transition-colors">
-            <div className="text-2xl mb-2">🔓</div>
-            <div className="font-semibold text-sm">Grammar</div>
+          <Link href="/learn/patterns" className="bg-zinc-900 border border-zinc-800 hover:border-violet-700 rounded-xl p-4 transition-colors">
+            <div className="text-2xl mb-2">🧩</div>
+            <div className="font-semibold text-sm">Patterns</div>
             <div className="text-zinc-500 text-xs mt-1">
-              {user.grammarDone ? "Cheat sheet ready ✓" : "Deconstruction pending"}
+              {user.patternsCompleted}/{user.totalPatterns} unlocked
             </div>
           </Link>
           <Link href="/progress" className="bg-zinc-900 border border-zinc-800 hover:border-zinc-600 rounded-xl p-4 transition-colors">
-            <div className="text-2xl mb-2">📊</div>
+            <div className="text-2xl mb-2">📈</div>
             <div className="font-semibold text-sm">Progress</div>
-            <div className="text-zinc-500 text-xs mt-1">Stats & achievements</div>
+            <div className="text-zinc-500 text-xs mt-1">Stats & streak</div>
           </Link>
         </div>
       </div>
+
+      {/* Easter egg footer */}
+      <RudeModeEgg />
+    </div>
+  );
+}
+
+function RudeModeEgg() {
+  const router = useRouter();
+  const [taps, setTaps] = useState(0);
+
+  function handleTap() {
+    const next = taps + 1;
+    setTaps(next);
+    if (next >= 5) {
+      localStorage.setItem("rude_mode_unlocked", "1");
+      router.push("/rude");
+    }
+  }
+
+  return (
+    <div className="text-center py-6">
+      <button
+        onClick={handleTap}
+        className="text-zinc-800 hover:text-zinc-700 transition-colors text-xs select-none"
+        aria-hidden="true"
+      >
+        {taps === 0 ? "🇫🇷" : taps < 3 ? "👀" : taps < 4 ? "🤔" : "🤬"}
+      </button>
     </div>
   );
 }
