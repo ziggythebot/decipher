@@ -507,31 +507,59 @@ export default defineAgent({
       );
 
       const wordsEncountered: string[] = [];
-      if (sessionObjective?.targetVocab?.length) {
-        const matchers = sessionObjective.targetVocab.map((v) => ({
-          word: v.word,
-          // \b doesn't work around accented chars — use lookaround to treat any letter
-          // (incl. À-ÿ, hyphen, apostrophe) as a "word char" boundary.
-          regex: new RegExp(
-            `(?<![\\p{L}'’-])${escapeRegex(v.word)}(?![\\p{L}'’-])`,
-            "iu"
-          ),
-        }));
+      let patternUses = 0;
 
-        for (const item of chatItems) {
-          const role = (item as unknown as { role?: string }).role;
-          if (role !== "user") continue;
-          const content = (item as unknown as { content?: unknown }).content;
-          const text = typeof content === "string" ? content : Array.isArray(content)
-            ? (content as Array<unknown>).map((p) => typeof p === "string" ? p : ((p as { text?: string }).text ?? "")).join(" ")
-            : "";
-          if (!text) continue;
-          for (const m of matchers) {
-            if (wordsEncountered.includes(m.word)) continue;
-            if (m.regex.test(text)) wordsEncountered.push(m.word);
-          }
+      const vocabMatchers = sessionObjective?.targetVocab?.length
+        ? sessionObjective.targetVocab.map((v) => ({
+            word: v.word,
+            // \b doesn't work around accented chars — use lookaround to treat any letter
+            // (incl. À-ÿ, hyphen, apostrophe) as a "word char" boundary.
+            regex: new RegExp(
+              `(?<![\\p{L}'’-])${escapeRegex(v.word)}(?![\\p{L}'’-])`,
+              "iu"
+            ),
+          }))
+        : [];
+
+      // Pattern counter: match the literal stem of the target frame against learner
+      // utterances. Counts every occurrence (not just unique sessions), so a learner
+      // who says "je voudrais" 6 times in one session reaches the objective.
+      const patternRegex =
+        sessionObjective?.targetPattern?.frameStem
+          ? new RegExp(
+              `(?<![\\p{L}'’-])${escapeRegex(sessionObjective.targetPattern.frameStem)}(?![\\p{L}'’-])`,
+              "giu"
+            )
+          : null;
+
+      for (const item of chatItems) {
+        const role = (item as unknown as { role?: string }).role;
+        if (role !== "user") continue;
+        const content = (item as unknown as { content?: unknown }).content;
+        const text = typeof content === "string" ? content : Array.isArray(content)
+          ? (content as Array<unknown>).map((p) => typeof p === "string" ? p : ((p as { text?: string }).text ?? "")).join(" ")
+          : "";
+        if (!text) continue;
+
+        for (const m of vocabMatchers) {
+          if (wordsEncountered.includes(m.word)) continue;
+          if (m.regex.test(text)) wordsEncountered.push(m.word);
+        }
+
+        if (patternRegex) {
+          const matches = text.match(patternRegex);
+          if (matches) patternUses += matches.length;
         }
       }
+
+      console.info(
+        JSON.stringify({
+          event: "session_flush",
+          wordsEncountered: wordsEncountered.length,
+          patternUses,
+          targetPatternId: sessionObjective?.targetPattern?.id ?? null,
+        })
+      );
 
       try {
         await fetch(`${internalUrl}/api/internal/session-complete`, {
@@ -543,7 +571,7 @@ export default defineAgent({
           body: JSON.stringify({
             sessionId,
             wordsEncountered,
-            patternUses: 0, // turn-level counting added in Phase 4
+            patternUses,
             errorsLogged: [],
           }),
         });
@@ -659,6 +687,7 @@ type SessionObjective = {
     description: string;
     exampleFr: string;
     requiredUses: number;
+    frameStem: string;
   } | null;
   targetVocab: {
     word: string;

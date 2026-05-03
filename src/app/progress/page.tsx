@@ -34,6 +34,9 @@ export default async function ProgressPage() {
     wordsEncountered: string[];
     errorsLogged: unknown;
     transcript: string | null;
+    sessionObjective: unknown;
+    patternUses: number;
+    objectiveReached: boolean | null;
   }> = [];
   let streakEntries: Array<{ date: Date }> = [];
 
@@ -61,6 +64,9 @@ export default async function ProgressPage() {
             wordsEncountered: true,
             errorsLogged: true,
             transcript: true,
+            sessionObjective: true,
+            patternUses: true,
+            objectiveReached: true,
           },
         }),
         db.streakEntry.findMany({
@@ -229,22 +235,68 @@ export default async function ProgressPage() {
           </div>
 
           <div className="mt-4 space-y-2">
-            {recentSessions.slice(0, 5).map((session) => (
-              <article key={session.id} className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-sm font-semibold">
-                    {(session.scenarioType ?? "freeform").replaceAll("_", " ")}
+            {recentSessions.slice(0, 5).map((session) => {
+              const objective = session.sessionObjective as
+                | {
+                    targetPattern?: { id: string; exampleFr?: string; requiredUses?: number } | null;
+                    targetVocab?: Array<{ word: string }>;
+                  }
+                | null;
+              const targetVocab = objective?.targetVocab ?? [];
+              const hitVocab = targetVocab.filter((v) =>
+                session.wordsEncountered.some((w) => w.toLowerCase() === v.word.toLowerCase())
+              );
+              const requiredUses = objective?.targetPattern?.requiredUses ?? 6;
+              return (
+                <article key={session.id} className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-semibold">
+                      {(session.scenarioType ?? "freeform").replaceAll("_", " ")}
+                    </p>
+                    <p className="text-xs text-zinc-500">{session.createdAt.toLocaleString()}</p>
+                  </div>
+                  <p className="mt-1 text-xs text-zinc-400">
+                    {session.duration ? `${Math.floor(session.duration / 60)}m ${session.duration % 60}s` : "n/a"} •
+                    {" "}+{session.xpEarned} XP •{" "}
+                    {Array.isArray(session.errorsLogged) ? session.errorsLogged.length : 0} errors •{" "}
+                    {session.accuracyPct ?? "n/a"}% accuracy
                   </p>
-                  <p className="text-xs text-zinc-500">{session.createdAt.toLocaleString()}</p>
-                </div>
-                <p className="mt-1 text-xs text-zinc-400">
-                  {session.duration ? `${Math.floor(session.duration / 60)}m ${session.duration % 60}s` : "n/a"} •
-                  {" "}+{session.xpEarned} XP •{" "}
-                  {Array.isArray(session.errorsLogged) ? session.errorsLogged.length : 0} errors •{" "}
-                  {session.accuracyPct ?? "n/a"}% accuracy
-                </p>
-              </article>
-            ))}
+                  {objective?.targetPattern ? (
+                    <p className="mt-2 text-xs">
+                      <span className="text-zinc-500">Pattern:</span>{" "}
+                      <span className="text-zinc-200">{objective.targetPattern.exampleFr ?? objective.targetPattern.id}</span>{" "}
+                      <span
+                        className={
+                          session.objectiveReached
+                            ? "text-emerald-400"
+                            : session.patternUses > 0
+                            ? "text-amber-400"
+                            : "text-zinc-500"
+                        }
+                      >
+                        ({session.patternUses}/{requiredUses}
+                        {session.objectiveReached ? " ✓" : ""})
+                      </span>
+                    </p>
+                  ) : null}
+                  {targetVocab.length > 0 ? (
+                    <p className="mt-1 text-xs">
+                      <span className="text-zinc-500">Vocab:</span>{" "}
+                      <span className="text-zinc-200">
+                        {hitVocab.length}/{targetVocab.length} used
+                      </span>{" "}
+                      <span className="text-zinc-500">
+                        — {targetVocab
+                          .map((v) =>
+                            hitVocab.some((h) => h.word === v.word) ? `✓${v.word}` : v.word
+                          )
+                          .join(", ")}
+                      </span>
+                    </p>
+                  ) : null}
+                </article>
+              );
+            })}
           </div>
 
           <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-900 p-4">

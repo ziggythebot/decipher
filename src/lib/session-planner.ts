@@ -9,7 +9,16 @@ function resolveTargetPattern(pattern: PhrasePattern): SessionObjective["targetP
     description: pattern.hook,
     exampleFr: pattern.examples[0]?.fr ?? pattern.frame,
     requiredUses: REQUIRED_USES,
+    frameStem: extractFrameStem(pattern.frame),
   };
+}
+
+// Take the literal part of a frame before the first ___ placeholder. This is
+// what the learner must actually say for us to count a pattern use. e.g.
+// "Je voudrais ___" → "je voudrais", "C'est ___" → "c'est".
+function extractFrameStem(frame: string): string {
+  const cut = frame.split("___")[0] ?? frame;
+  return cut.trim().toLowerCase();
 }
 
 export type SessionObjective = {
@@ -18,6 +27,7 @@ export type SessionObjective = {
     description: string;
     exampleFr: string;
     requiredUses: number;
+    frameStem: string;
   } | null;
   targetVocab: {
     word: string;
