@@ -2,6 +2,7 @@
 
 export const XP = {
   // Vocab
+  WORD_SEEN: 3,                // per learn-mode exposure (just showing up)
   WORD_CORRECT: 10,
   WORD_CORRECT_STREAK_3: 15,   // bonus for 3-in-a-row
   WORD_CORRECT_STREAK_5: 25,   // bonus for 5-in-a-row
@@ -19,6 +20,7 @@ export const XP = {
   CONVO_NEW_WORD_USED: 15,    // using a word you just learned
 
   // Grammar
+  DECONSTRUCTION_CARD: 8,        // per card completed (8 × 12 = 96)
   DECONSTRUCTION_COMPLETE: 100,
   CHEAT_SHEET_DONE: 50,
 

@@ -41,14 +41,14 @@ export default async function ProgressPage() {
     try {
       [wordsLearned, sessions, knownVocab, recentSessions, streakEntries] = await Promise.all([
         db.userVocabulary.count({ where: { userId: user.id, state: { gt: 0 } } }),
-        db.conversationSession.count({ where: { userId: user.id } }),
+        db.conversationSession.count({ where: { userId: user.id, mode: { not: "rude" } } }),
         db.userVocabulary.findMany({
           where: { userId: user.id, state: { gt: 0 } },
           include: { word: { select: { word: true } } },
           take: 2000,
         }),
         db.conversationSession.findMany({
-          where: { userId: user.id, duration: { not: null } },
+          where: { userId: user.id, duration: { not: null }, mode: { not: "rude" } },
           orderBy: { createdAt: "desc" },
           take: 10,
           select: {
