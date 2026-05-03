@@ -5,6 +5,7 @@ import { ACHIEVEMENTS } from "@/lib/achievements";
 import { XP, levelFromTotalXp } from "@/lib/xp";
 import { scheduleReview, type Rating } from "@/lib/srs/rating";
 import { AuthRequiredError, getOrCreateSessionUser } from "@/lib/session-user";
+import { getActiveLanguage } from "@/lib/language/catalog";
 
 type Body = {
   vocabId?: string;
@@ -142,8 +143,9 @@ export async function POST(request: Request) {
     });
 
     const unlockedBonusXp: number[] = [];
+    const activeLanguage = getActiveLanguage(user);
     const learnedWords = await tx.userVocabulary.count({
-      where: { userId: user.id, state: { gt: 0 } },
+      where: { userId: user.id, state: { gt: 0 }, word: { languageCode: activeLanguage } },
     });
 
     if (learnedWords >= 1) unlockedBonusXp.push(await unlockAchievement(tx, user.id, "first_word"));
