@@ -8,6 +8,8 @@ export default defineConfig({
     path: "prisma/migrations",
   },
   datasource: {
-    url: env("DATABASE_URL"),
+    // Use unpooled connection for migrations (DDL requires advisory locks).
+    // Use pooled connection (DATABASE_URL) for runtime queries.
+    url: env("DATABASE_URL_UNPOOLED") || env("DATABASE_URL"),
   },
 });

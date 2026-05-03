@@ -21,10 +21,8 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.82.0",
-    "@clerk/nextjs": "^7.0.11",
     "@livekit/agents": "^1.2.4",
     "@livekit/agents-plugin-deepgram": "^1.2.4",
-    "@livekit/agents-plugin-elevenlabs": "^1.2.4",
     "@livekit/agents-plugin-openai": "^1.2.4",
     "@livekit/agents-plugin-silero": "^1.2.4",
     "@prisma/adapter-pg": "^7.7.0",

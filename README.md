@@ -37,7 +37,7 @@ Before touching vocabulary, you complete a 20-minute grammar session using 12 ca
 Vocabulary is sequenced by real-world frequency — you learn *de*, *être*, *avoir* before *boulangerie*. Each card runs through the open-source FSRS-5 spaced repetition algorithm (via `ts-fsrs`), so reviews are scheduled based on your actual memory model, not a fixed timer.
 
 ### AI Voice Conversation Practice
-A LiveKit Agents pipeline connects you to a real-time AI French tutor. Deepgram handles speech-to-text, Claude plays the tutor (adapting language level to your vocabulary count, correcting errors naturally, using the i+1 method), ElevenLabs delivers natural French TTS. Multiple guided scenarios — Parisian café, street market, asking directions, restaurant, meeting someone at a conference — plus freeform mode.
+A LiveKit Agents pipeline connects you to a real-time AI French tutor. Deepgram handles speech-to-text (nova-3), Claude Sonnet 4.6 plays the tutor (adapting language level to your vocabulary count, correcting errors naturally, using the i+1 method), Deepgram Aura-2 delivers natural French TTS. Multiple guided scenarios — Parisian café, street market, asking directions, restaurant, meeting someone at a conference — plus freeform mode.
 
 ### Gamification That Doesn't Suck
 Designed for ADHD brains — dopamine loops that reinforce actual learning, not just app opens:
@@ -63,9 +63,9 @@ Designed for ADHD brains — dopamine loops that reinforce actual learning, not 
 | Auth | Privy (multi-user), with local dev fallback when Privy env vars are unset |
 | Spaced repetition | ts-fsrs (FSRS-5 algorithm) |
 | Voice pipeline | LiveKit Agents 1.x |
-| Speech-to-text | Deepgram |
-| Text-to-speech | ElevenLabs |
-| LLM | Claude (Anthropic) |
+| Speech-to-text | Deepgram nova-3 |
+| Text-to-speech | Deepgram Aura-2 |
+| LLM | Claude Sonnet 4.6 (Anthropic) |
 | Animations | Framer Motion 12 |
 | Styling | Tailwind CSS v4 |
 
@@ -119,8 +119,9 @@ LIVEKIT_URL=wss://your-project.livekit.cloud
 # AI services
 ANTHROPIC_API_KEY=sk-ant-...
 DEEPGRAM_API_KEY=...
-ELEVENLABS_API_KEY=...
-ELEVENLABS_VOICE_ID_FR=pNInz6obpgDQGcFmaJgB   # optional — defaults to Adam
+# Optional overrides — Deepgram TTS model and STT language are auto-selected from targetLanguage
+# DEEPGRAM_TTS_MODEL=aura-2-agathe-fr
+# DEEPGRAM_STT_LANGUAGE=fr
 ```
 
 For SSR route protection (`/dashboard`, `/learn/*`, `/speak`, `/progress`), configure Privy to
@@ -179,7 +180,6 @@ fly secrets set \
   LIVEKIT_API_SECRET=... \
   LIVEKIT_AGENT_NAME=decipher-agent \
   DEEPGRAM_API_KEY=... \
-  ELEVENLABS_API_KEY=... \
   ANTHROPIC_API_KEY=... \
   -a decipher-voice-worker
 
@@ -309,7 +309,7 @@ French is the trial language. The architecture supports any language:
 2. Create Deconstruction Dozen sentences for the target language
 3. Add the language code, flag, and name to `DashboardClient.tsx`
 4. Seed the data via `npm run db:seed`
-5. Set a voice ID for ElevenLabs in `.env` (e.g. `ELEVENLABS_VOICE_ID_ES`)
+5. Add the language to `LANGUAGE_CATALOG` in `src/lib/language/catalog.ts` (flag, Deepgram STT locale, Deepgram TTS model)
 6. Add conversation scenarios to the agent's `SCENARIOS` object in `src/agent/index.ts`
 
 ---
