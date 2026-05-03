@@ -24,6 +24,7 @@ model User {
   goalType       String   @default("social") // travel | social | business
   deadlineDate   DateTime?
   dailyMinutes   Int      @default(15)
+  onboardedAt    DateTime?  // null = needs onboarding wizard
 
   // Admin controls
   isBlocked          Boolean @default(false)
