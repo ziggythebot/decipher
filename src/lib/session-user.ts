@@ -34,15 +34,26 @@ function buildFallbackUser() {
     xp: 0,
     level: 1,
     streakDays: 0,
-    lastActiveAt: null,
+    lastActiveAt: null as Date | null,
     totalXp: 0,
     targetLanguage: "fr",
     goalType: "social",
-    deadlineDate: null,
+    deadlineDate: null as Date | null,
     dailyMinutes: 15,
-    grammarProfile: null,
-    achievements: [],
-  } as const;
+    onboardedAt: new Date(),
+    grammarProfiles: [] as Array<{
+      id: string; userId: string; languageCode: string;
+      deconstructionDone: boolean; deconstructionProgress: number;
+      deconstructionCardState: unknown; cheatSheetMd: string | null;
+      patternScores: unknown; completedAt: Date | null;
+    }>,
+    userLanguages: [
+      { id: "ul-fallback", userId: "voice-only-user", languageCode: "fr", isActive: true, startedAt: new Date(), lastActiveAt: null as Date | null }
+    ],
+    achievements: [] as Array<{ id: string; unlockedAt: Date; achievement: { slug: string; name: string; xpReward: number; icon: string; description: string } }>,
+    isBlocked: false,
+    monthlyTokenBudget: null as number | null,
+  };
 }
 
 function extractBearerToken(authHeader: string | null): string | null {
@@ -108,7 +119,8 @@ export async function getOrCreateUserForSubject(subject: string) {
   let user = await db.user.findUnique({
     where: { clerkId: subject },
     include: {
-      grammarProfile: true,
+      grammarProfiles: true,
+      userLanguages: true,
       achievements: { include: { achievement: true } },
     },
   });
@@ -119,12 +131,23 @@ export async function getOrCreateUserForSubject(subject: string) {
         clerkId: subject,
         email: syntheticEmailForPrivyUser(subject),
         targetLanguage: "fr",
+        userLanguages: {
+          create: { languageCode: "fr", isActive: true },
+        },
       },
       include: {
-        grammarProfile: true,
+        grammarProfiles: true,
+        userLanguages: true,
         achievements: { include: { achievement: true } },
       },
     });
+  } else if (user.userLanguages.length === 0) {
+    // Compatibility: seed UserLanguage for existing users on first request after migration.
+    console.warn(`[lang] Seeding UserLanguage for existing user ${user.id}`);
+    await db.userLanguage.create({
+      data: { userId: user.id, languageCode: user.targetLanguage || "fr", isActive: true },
+    });
+    user = { ...user, userLanguages: [{ id: "ul-seeded", userId: user.id, languageCode: user.targetLanguage || "fr", isActive: true, startedAt: new Date(), lastActiveAt: null }] };
   }
 
   return user;
@@ -158,7 +181,8 @@ export async function getOrCreateSessionUser(options: { request?: Request; requi
     let user = await db.user.findUnique({
       where: { clerkId: DEV_CLERK_ID },
       include: {
-        grammarProfile: true,
+        grammarProfiles: true,
+        userLanguages: true,
         achievements: { include: { achievement: true } },
       },
     });
@@ -169,12 +193,22 @@ export async function getOrCreateSessionUser(options: { request?: Request; requi
           clerkId: DEV_CLERK_ID,
           email: DEV_EMAIL,
           targetLanguage: "fr",
+          userLanguages: {
+            create: { languageCode: "fr", isActive: true },
+          },
         },
         include: {
-          grammarProfile: true,
+          grammarProfiles: true,
+          userLanguages: true,
           achievements: { include: { achievement: true } },
         },
       });
+    } else if (user.userLanguages.length === 0) {
+      console.warn(`[lang] Seeding UserLanguage for dev user ${user.id}`);
+      await db.userLanguage.create({
+        data: { userId: user.id, languageCode: user.targetLanguage || "fr", isActive: true },
+      });
+      user = { ...user, userLanguages: [{ id: "ul-seeded", userId: user.id, languageCode: user.targetLanguage || "fr", isActive: true, startedAt: new Date(), lastActiveAt: null }] };
     }
 
     return user;

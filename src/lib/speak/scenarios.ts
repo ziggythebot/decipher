@@ -8,6 +8,22 @@ export type ScenarioMission = {
 };
 
 export const SCENARIO_MISSIONS: Record<string, ScenarioMission> = {
+  road_rage: {
+    targetWords: [
+      { word: "putain", meaning: "fuck (general expletive)" },
+      { word: "casse-toi", meaning: "piss off" },
+      { word: "tu me fais chier", meaning: "you're pissing me off" },
+      { word: "bordel", meaning: "fucking mess" },
+      { word: "calme-toi", meaning: "calm down" },
+    ],
+    openingMove: "Jean-Pierre is already furious. Try to survive the journey.",
+    hintChips: ["Calmez-vous !", "Désolé, désolé…", "Putain, vous avez raison !"],
+  },
+  struggle_bus: {
+    targetWords: [],
+    openingMove: "Your tutor will weave your trickiest vocab words into natural conversation so they finally stick.",
+    hintChips: ["Je ne sais pas…", "Comment dit-on…?", "Encore une fois ?"],
+  },
   ordering_coffee: {
     targetWords: [
       { word: "un café", meaning: "a coffee" },
@@ -66,6 +82,7 @@ export const SCENARIO_MISSIONS: Record<string, ScenarioMission> = {
 };
 
 export const SPEAK_SCENARIOS = [
+  { slug: "struggle_bus", title: "Struggle Bus", desc: "Drill your trickiest words in real conversation." },
   { slug: "ordering_coffee", title: "Ordering Coffee", desc: "Cafe ordering basics and polite requests." },
   { slug: "meeting_someone", title: "Meeting Someone", desc: "Introductions and short networking exchanges." },
   { slug: "shopping", title: "Market Shopping", desc: "Asking prices, quantities, and payment." },
@@ -75,6 +92,7 @@ export const SPEAK_SCENARIOS = [
 
 export type SpeakScenarioSlug = (typeof SPEAK_SCENARIOS)[number]["slug"];
 
-export const SPEAK_SCENARIO_SLUGS = new Set<string>(
-  SPEAK_SCENARIOS.map((scenario) => scenario.slug)
-);
+export const SPEAK_SCENARIO_SLUGS = new Set<string>([
+  ...SPEAK_SCENARIOS.map((scenario) => scenario.slug),
+  "road_rage",
+]);
