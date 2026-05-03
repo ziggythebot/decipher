@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { ACHIEVEMENTS } from "@/lib/achievements";
 import { XP, levelFromTotalXp } from "@/lib/xp";
 import { AuthRequiredError, getOrCreateSessionUser } from "@/lib/session-user";
+import { getActiveLanguage } from "@/lib/language/catalog";
 
 function startOfUtcDay(date: Date): Date {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
@@ -54,7 +55,9 @@ export async function POST(request: Request) {
   }
 
   const now = new Date();
-  const alreadyCompleted = user.grammarProfile?.deconstructionDone ?? false;
+  const activeLanguage = getActiveLanguage(user);
+  const grammarProfile = user.grammarProfiles.find((p) => p.languageCode === activeLanguage) ?? null;
+  const alreadyCompleted = grammarProfile?.deconstructionDone ?? false;
 
   if (alreadyCompleted) {
     return NextResponse.json({ ok: true, alreadyCompleted: true });
@@ -76,16 +79,9 @@ export async function POST(request: Request) {
 
   const result = await db.$transaction(async (tx) => {
     await tx.grammarProfile.upsert({
-      where: { userId: user.id },
-      update: {
-        deconstructionDone: true,
-        completedAt: now,
-      },
-      create: {
-        userId: user.id,
-        deconstructionDone: true,
-        completedAt: now,
-      },
+      where: { userId_languageCode: { userId: user.id, languageCode: activeLanguage } },
+      update: { deconstructionDone: true, completedAt: now },
+      create: { userId: user.id, languageCode: activeLanguage, deconstructionDone: true, completedAt: now },
     });
 
     let totalGain = XP.DECONSTRUCTION_COMPLETE;

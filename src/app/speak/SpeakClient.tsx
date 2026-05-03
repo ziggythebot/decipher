@@ -32,6 +32,8 @@ type RecentSession = {
 type Props = {
   scenarios: Scenario[];
   recentSessions: RecentSession[];
+  initialScenario?: string | null;
+  initialMode?: "guided" | "freeform" | "rude";
 };
 
 type DebugStageEvent = {
@@ -84,7 +86,7 @@ function formatDuration(duration: number | null): string {
   return `${mins}m ${secs}s`;
 }
 
-export function SpeakClient({ scenarios, recentSessions }: Props) {
+export function SpeakClient({ scenarios, recentSessions, initialScenario, initialMode }: Props) {
   const router = useRouter();
   const [active, setActive] = useState<ActiveSession | null>(null);
   const [pendingScenario, setPendingScenario] = useState<SpeakScenarioSlug | null>(null);
@@ -208,6 +210,15 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
     }
   }
 
+  // Auto-start if arriving from rude hub with a pre-selected scenario
+  useEffect(() => {
+    if (initialScenario && !active && !loading) {
+      void startSession(initialScenario);
+    }
+    // Only run once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     if (!active) return;
 
@@ -264,7 +275,7 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
     }
   }
 
-  async function startSession(scenarioType: SpeakScenarioSlug) {
+  async function startSession(scenarioType: SpeakScenarioSlug | string) {
     if (active || loading) return;
     setMessage(null);
     setLoading(true);
@@ -272,7 +283,7 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
     const response = await fetch("/api/speak/session/start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mode: "guided", scenarioType }),
+      body: JSON.stringify({ mode: initialMode === "rude" ? "rude" : "guided", scenarioType }),
     });
 
     if (!response.ok) {
@@ -669,22 +680,32 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
         )}
       </div>
 
-      <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-900 p-3">
-        <p className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Debug Timeline</p>
-        {debugStages.length === 0 ? (
-          <p className="mt-2 text-xs text-zinc-500">No stage events yet.</p>
-        ) : (
-          <div className="mt-2 max-h-44 space-y-1 overflow-y-auto">
-            {debugStages.map((event, index) => (
-              <p key={`${event.ts}-${event.stage}-${index}`} className="text-xs text-zinc-300">
-                {new Date(event.ts).toLocaleTimeString()} •
-                {event.turnId ? ` turn ${event.turnId} •` : ""} {event.stage}
-                {event.detail ? ` • ${event.detail}` : ""}
-              </p>
-            ))}
-          </div>
-        )}
-      </div>
+      <details className="mt-4 rounded-xl border border-zinc-800 bg-zinc-900 group">
+        <summary className="cursor-pointer list-none p-3 flex items-center justify-between text-xs font-semibold uppercase tracking-wider text-zinc-400 hover:text-zinc-200">
+          <span>
+            Debug Timeline
+            {debugStages.length > 0 && (
+              <span className="ml-2 text-zinc-500 normal-case tracking-normal">({debugStages.length})</span>
+            )}
+          </span>
+          <span className="text-zinc-500 transition-transform group-open:rotate-180">▾</span>
+        </summary>
+        <div className="px-3 pb-3">
+          {debugStages.length === 0 ? (
+            <p className="text-xs text-zinc-500">No stage events yet.</p>
+          ) : (
+            <div className="max-h-44 space-y-1 overflow-y-auto">
+              {debugStages.map((event, index) => (
+                <p key={`${event.ts}-${event.stage}-${index}`} className="text-xs text-zinc-300">
+                  {new Date(event.ts).toLocaleTimeString()} •
+                  {event.turnId ? ` turn ${event.turnId} •` : ""} {event.stage}
+                  {event.detail ? ` • ${event.detail}` : ""}
+                </p>
+              ))}
+            </div>
+          )}
+        </div>
+      </details>
 
       <div className="mt-8 grid gap-3 sm:grid-cols-2">
         {scenarios.map((scenario) => (
@@ -708,23 +729,31 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
         const mission = SCENARIO_MISSIONS[pendingScenario];
         const scenarioTitle = scenarios.find((s) => s.slug === pendingScenario)?.title ?? pendingScenario;
         if (!mission) return null;
+        const isStruggleBus = pendingScenario === "struggle_bus";
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
             <div className="w-full max-w-md rounded-2xl border border-zinc-700 bg-zinc-900 p-6 shadow-2xl">
-              <p className="text-xs font-semibold uppercase tracking-wider text-indigo-400">Mission briefing</p>
+              <p className={`text-xs font-semibold uppercase tracking-wider ${isStruggleBus ? "text-orange-400" : "text-indigo-400"}`}>Mission briefing</p>
               <h2 className="mt-1 text-xl font-bold text-zinc-100">{scenarioTitle}</h2>
               <p className="mt-2 text-sm text-zinc-400">{mission.openingMove}</p>
-              <div className="mt-4">
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">Key words to use</p>
-                <div className="space-y-1">
-                  {mission.targetWords.map(({ word, meaning }) => (
-                    <div key={word} className="flex items-baseline justify-between gap-2 rounded-lg bg-zinc-800 px-3 py-2">
-                      <span className="font-medium text-zinc-100">{word}</span>
-                      <span className="text-xs text-zinc-400">{meaning}</span>
-                    </div>
-                  ))}
+              {isStruggleBus ? (
+                <div className="mt-4 rounded-xl bg-orange-900/20 border border-orange-800 p-4">
+                  <p className="text-sm text-orange-300 font-semibold mb-1">How it works</p>
+                  <p className="text-sm text-zinc-400">Your tutor pulls your trickiest words from vocab practice and weaves them into natural conversation. The more you&apos;ve struggled with a word, the more it appears.</p>
                 </div>
-              </div>
+              ) : (
+                <div className="mt-4">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">Key words to use</p>
+                  <div className="space-y-1">
+                    {mission.targetWords.map(({ word, meaning }) => (
+                      <div key={word} className="flex items-baseline justify-between gap-2 rounded-lg bg-zinc-800 px-3 py-2">
+                        <span className="font-medium text-zinc-100">{word}</span>
+                        <span className="text-xs text-zinc-400">{meaning}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               <p className="mt-4 text-xs text-zinc-500">
                 Don&apos;t worry — your tutor will guide you. Hint phrases appear during the session if you get stuck.
               </p>
@@ -735,7 +764,7 @@ export function SpeakClient({ scenarios, recentSessions }: Props) {
                     setPendingScenario(null);
                     void startSession(pendingScenario);
                   }}
-                  className="flex-1 rounded-xl bg-indigo-600 py-3 text-sm font-bold text-white transition-colors hover:bg-indigo-500"
+                  className={`flex-1 rounded-xl py-3 text-sm font-bold text-white transition-colors ${isStruggleBus ? "bg-orange-600 hover:bg-orange-500" : "bg-indigo-600 hover:bg-indigo-500"}`}
                 >
                   Let&apos;s go
                 </button>

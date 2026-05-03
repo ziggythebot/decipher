@@ -1,25 +1,16 @@
 import { db } from "@/lib/db";
+import { PHRASE_PATTERNS, getPhrasePattern, type PhrasePattern } from "@/data/phrase-patterns";
 
-// Grammar patterns derived from the Deconstruction Dozen.
-// Used when patternScores is empty (user hasn't completed deconstruction yet).
-const FALLBACK_PATTERNS: PatternDef[] = [
-  { id: "svo", description: "Basic sentence structure (SVO)", exampleFr: "La pomme est rouge." },
-  { id: "possessives", description: "Possessives — de + owner", exampleFr: "C'est la pomme de Jean." },
-  { id: "indirect-object", description: "Indirect objects — give to someone", exampleFr: "Je donne la pomme à Jean." },
-  { id: "pronoun", description: "Object pronouns — lui/leur", exampleFr: "Nous lui donnons la pomme." },
-  { id: "question", description: "Question formation", exampleFr: "Est-ce que la pomme est rouge?" },
-  { id: "plural", description: "Plural agreement", exampleFr: "Les pommes sont rouges." },
-  { id: "modal", description: "Modal verbs — devoir/vouloir", exampleFr: "Je dois lui donner la pomme." },
-  { id: "near-future", description: "Near future — aller + infinitive", exampleFr: "Je vais savoir demain." },
-  { id: "negation", description: "Negation — ne…pas", exampleFr: "Je ne peux pas manger la pomme." },
-  { id: "present-perfect", description: "Present perfect — avoir + past participle", exampleFr: "J'ai mangé la pomme." },
-];
+const REQUIRED_USES = 6;
 
-type PatternDef = {
-  id: string;
-  description: string;
-  exampleFr: string;
-};
+function resolveTargetPattern(pattern: PhrasePattern): SessionObjective["targetPattern"] {
+  return {
+    id: pattern.id,
+    description: pattern.hook,
+    exampleFr: pattern.examples[0]?.fr ?? pattern.frame,
+    requiredUses: REQUIRED_USES,
+  };
+}
 
 export type SessionObjective = {
   targetPattern: {
@@ -109,22 +100,20 @@ export async function buildSessionObjective(
     if (targetVocab.length >= 8) break;
   }
 
-  // Pick weakest grammar pattern
+  // Pick weakest phrase pattern the learner has started. Ids come from PHRASE_PATTERNS
+  // (written by /api/patterns/complete), so we resolve via getPhrasePattern.
   let targetPattern: SessionObjective["targetPattern"] = null;
   const patternScores = (grammarProfile?.patternScores ?? {}) as Record<string, number>;
-  const patternKeys = Object.keys(patternScores);
+  const scoredKeys = Object.keys(patternScores).filter((k) => getPhrasePattern(k));
 
-  if (patternKeys.length > 0) {
-    // Pick the pattern with the lowest mastery score
-    const weakestKey = patternKeys.reduce((a, b) => (patternScores[a] < patternScores[b] ? a : b));
-    const def = FALLBACK_PATTERNS.find((p) => p.id === weakestKey);
-    if (def) {
-      targetPattern = { ...def, requiredUses: 6 };
-    }
-  } else if (grammarProfile?.deconstructionDone) {
-    // Deconstruction done but no scores tracked yet — pick a random pattern
-    const def = FALLBACK_PATTERNS[Math.floor(Math.random() * FALLBACK_PATTERNS.length)];
-    targetPattern = { ...def, requiredUses: 6 };
+  if (scoredKeys.length > 0) {
+    const weakestKey = scoredKeys.reduce((a, b) => (patternScores[a] < patternScores[b] ? a : b));
+    const pattern = getPhrasePattern(weakestKey);
+    if (pattern) targetPattern = resolveTargetPattern(pattern);
+  } else if (grammarProfile?.deconstructionDone && PHRASE_PATTERNS.length > 0) {
+    // Deconstruction done but no phrase patterns started yet — seed with the first one
+    // (frequency-ordered: je voudrais is the most useful phrase in French).
+    targetPattern = resolveTargetPattern(PHRASE_PATTERNS[0]);
   }
   // If deconstruction not done, no pattern targeting — keep targetPattern null
 

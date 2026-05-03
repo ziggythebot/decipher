@@ -8,7 +8,14 @@ import { SpeakClient } from "./SpeakClient";
 export const dynamic = "force-dynamic";
 const VOICE_ONLY_MODE = process.env.VOICE_ONLY_MODE === "1";
 
-export default async function SpeakPage() {
+export default async function SpeakPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ scenario?: string; mode?: string }>;
+}) {
+  const params = await searchParams;
+  const initialScenario = params.scenario ?? null;
+  const initialMode = params.mode === "freeform" ? "freeform" : params.mode === "rude" ? "rude" : "guided";
   let user;
   try {
     user = await getOrCreateSessionUser({ requireAuth: true });
@@ -33,9 +40,9 @@ export default async function SpeakPage() {
     try {
       [vocabCount, sessionCount, recentSessions] = await Promise.all([
         db.userVocabulary.count({ where: { userId: user.id, state: { gt: 0 } } }),
-        db.conversationSession.count({ where: { userId: user.id, duration: { not: null } } }),
+        db.conversationSession.count({ where: { userId: user.id, duration: { not: null }, mode: { not: "rude" } } }),
         db.conversationSession.findMany({
-          where: { userId: user.id, duration: { not: null } },
+          where: { userId: user.id, duration: { not: null }, mode: { not: "rude" } },
           orderBy: { createdAt: "desc" },
           take: 5,
           select: {
@@ -79,6 +86,8 @@ export default async function SpeakPage() {
             ...session,
             createdAt: session.createdAt.toISOString(),
           }))}
+          initialScenario={initialScenario}
+          initialMode={initialMode}
         />
       </main>
     </div>

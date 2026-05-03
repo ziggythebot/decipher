@@ -492,20 +492,43 @@ export default defineAgent({
       await flushUsage({ sttSeconds: totalSttSeconds });
     }
 
-    // Session complete: flush learning data back to the Next.js app
+    // Session complete: flush learning data back to the Next.js app.
+    // We count target vocab as "encountered" only when the LEARNER said it — agent
+    // utterances don't count, otherwise FSRS "Good" ratings would be driven by
+    // exposure, not production (defeats the usage-based learning goal).
     if (sessionId && internalUrl && internalSecret) {
-      // Collect all words that appeared in conversation turns
+      const chatItems = session.chatCtx?.items ?? [];
+      console.info(
+        JSON.stringify({
+          event: "session_end",
+          chatCtxItems: chatItems.length,
+          hasObjective: Boolean(sessionObjective?.targetVocab?.length),
+        })
+      );
+
       const wordsEncountered: string[] = [];
-      for (const item of session.chatCtx.items) {
-        const content = (item as unknown as { content?: unknown }).content;
-        const text = typeof content === "string" ? content : Array.isArray(content)
-          ? (content as Array<unknown>).map((p) => typeof p === "string" ? p : ((p as { text?: string }).text ?? "")).join(" ")
-          : "";
-        if (text && sessionObjective?.targetVocab) {
-          for (const v of sessionObjective.targetVocab) {
-            if (text.toLowerCase().includes(v.word.toLowerCase()) && !wordsEncountered.includes(v.word)) {
-              wordsEncountered.push(v.word);
-            }
+      if (sessionObjective?.targetVocab?.length) {
+        const matchers = sessionObjective.targetVocab.map((v) => ({
+          word: v.word,
+          // \b doesn't work around accented chars — use lookaround to treat any letter
+          // (incl. À-ÿ, hyphen, apostrophe) as a "word char" boundary.
+          regex: new RegExp(
+            `(?<![\\p{L}'’-])${escapeRegex(v.word)}(?![\\p{L}'’-])`,
+            "iu"
+          ),
+        }));
+
+        for (const item of chatItems) {
+          const role = (item as unknown as { role?: string }).role;
+          if (role !== "user") continue;
+          const content = (item as unknown as { content?: unknown }).content;
+          const text = typeof content === "string" ? content : Array.isArray(content)
+            ? (content as Array<unknown>).map((p) => typeof p === "string" ? p : ((p as { text?: string }).text ?? "")).join(" ")
+            : "";
+          if (!text) continue;
+          for (const m of matchers) {
+            if (wordsEncountered.includes(m.word)) continue;
+            if (m.regex.test(text)) wordsEncountered.push(m.word);
           }
         }
       }
@@ -534,6 +557,10 @@ export default defineAgent({
 function getRemoteParticipantCount(ctx: { room: { remoteParticipants?: unknown } }): number {
   const map = ctx.room.remoteParticipants as Map<string, unknown> | undefined;
   return map ? map.size : 0;
+}
+
+function escapeRegex(input: string): string {
+  return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function resolveDeepgramTtsModel(targetLanguage: string, explicitModel?: string): string {

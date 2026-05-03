@@ -48,22 +48,19 @@ export default async function PatternsPage() {
           </div>
         </div>
 
-        {/* Pattern list */}
+        {/* Pattern list — any order. Scoring rewards doing them, not sequencing. */}
         <div className="space-y-3">
           {PHRASE_PATTERNS.map((pattern, i) => {
             const score = patternScores[pattern.id] ?? 0;
             const done = score >= 70;
-            const locked = i > 0 && (patternScores[PHRASE_PATTERNS[i - 1].id] ?? 0) < 70;
 
             return (
               <Link
                 key={pattern.id}
-                href={locked ? "#" : `/learn/patterns/${pattern.id}`}
+                href={`/learn/patterns/${pattern.id}`}
                 className={`block rounded-xl border p-4 transition-all ${
                   done
                     ? "border-indigo-700 bg-indigo-950/40 hover:bg-indigo-950/60"
-                    : locked
-                    ? "border-zinc-800 bg-zinc-900/30 opacity-40 cursor-not-allowed pointer-events-none"
                     : "border-zinc-700 bg-zinc-900 hover:bg-zinc-800 hover:border-zinc-500"
                 }`}
               >
@@ -77,11 +74,10 @@ export default async function PatternsPage() {
                     <div className="font-mono font-semibold text-white">{pattern.frame}</div>
                     <div className="text-zinc-400 text-sm mt-0.5 truncate">{pattern.hook}</div>
                   </div>
-                  {!done && !locked && (
-                    <div className="text-zinc-500 text-sm shrink-0">3 min →</div>
-                  )}
-                  {done && (
+                  {done ? (
                     <div className="text-indigo-400 text-xs font-medium shrink-0">unlocked</div>
+                  ) : (
+                    <div className="text-zinc-500 text-sm shrink-0">3 min →</div>
                   )}
                 </div>
               </Link>
