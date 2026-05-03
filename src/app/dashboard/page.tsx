@@ -18,6 +18,11 @@ export default async function DashboardPage() {
     }
     throw error;
   }
+
+  if (!user.onboardedAt) {
+    redirect("/onboarding");
+  }
+
   const activeLanguage = getActiveLanguage(user);
   const grammarProfile = user.grammarProfiles.find((p) => p.languageCode === activeLanguage) ?? null;
 
