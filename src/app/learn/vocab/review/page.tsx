@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { getDueCards } from "@/lib/vocab/queries";
 import { redirect } from "next/navigation";
 import { AuthRequiredError, getOrCreateSessionUser } from "@/lib/session-user";
 import { VocabSessionClient } from "../VocabSessionClient";
@@ -17,16 +17,7 @@ export default async function ReviewPage() {
   }
 
   // Review mode: only cards that have been learned (state >= 1) and are due
-  const dueCards = await db.userVocabulary.findMany({
-    where: {
-      userId: user.id,
-      state: { gte: 1 },
-      dueDate: { lte: new Date() },
-    },
-    include: { word: true },
-    orderBy: [{ word: { frequencyRank: "asc" } }],
-    take: 20,
-  });
+  const dueCards = await getDueCards(user.id);
 
   return (
     <VocabSessionClient
