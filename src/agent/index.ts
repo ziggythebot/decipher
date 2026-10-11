@@ -5,28 +5,18 @@ import {
   defineAgent,
   llm,
   voice,
+  type FlushSentinel,
 } from "@livekit/agents";
 import * as deepgram from "@livekit/agents-plugin-deepgram";
-import * as openai from "@livekit/agents-plugin-openai";
 import { type AudioFrame } from "@livekit/rtc-node";
 import { fileURLToPath } from "node:url";
-import { ReadableStream as NodeReadableStream } from "node:stream/web";
+import { ReadableStream as NodeReadableStream, TransformStream } from "node:stream/web";
+import { AnthropicCompatLLM } from "./anthropic-compat-llm";
 
 export default defineAgent({
   entry: async (ctx) => {
+    // AUDIO_ONLY also subscribes audio tracks published after connect (agents >= 1.9).
     await ctx.connect(undefined, AutoSubscribe.AUDIO_ONLY);
-
-    // AutoSubscribe.AUDIO_ONLY connects with autoSubscribe:false on the SFU and only
-    // manually subscribes to tracks from participants already present at connect time.
-    // Participants who join later have their tracks published but never subscribed, so
-    // the STT pipeline receives no audio. This handler fixes that by subscribing to
-    // every audio track published after connect.
-    ctx.room.on("trackPublished", (publication: { kind: number | undefined; setSubscribed: (v: boolean) => void }, _participant: unknown) => {
-      const AUDIO = 1; // TrackKind.KIND_AUDIO from @livekit/rtc-node
-      if (publication.kind === AUDIO) {
-        publication.setSubscribed(true);
-      }
-    });
 
     let participantIdentity: string | undefined;
     const participantIdentityResolvedVia = getRemoteParticipantCount(ctx) > 0 ? "immediate" : "wait";
@@ -113,7 +103,6 @@ export default defineAgent({
       }
     }
 
-    let accumulatedTtsChars = 0;
     let sttActiveStart: number | null = null;
     let totalSttSeconds = 0;
 
@@ -132,34 +121,32 @@ export default defineAgent({
         punctuate: true,
         smartFormat: true,
       }),
-      llm: new openai.LLM({
+      llm: new AnthropicCompatLLM({
         model: "claude-sonnet-4-6",
         baseURL: "https://api.anthropic.com/v1/",
         apiKey: process.env.ANTHROPIC_API_KEY,
       }),
       tts: ttsInstance,
-      turnDetection: "manual",
-      preemptiveGeneration: false,
+      // Push-to-talk: the client's ptt_press / ptt_release messages drive
+      // clearUserTurn() / commitUserTurn() below. No VAD, no turn detector.
+      turnHandling: {
+        turnDetection: "manual",
+        interruption: { enabled: false },
+        preemptiveGeneration: { enabled: false },
+      },
       userAwayTimeout: null,
+      // Keep the 30s TTS idle timeouts the old node_modules patch set (default 10s).
+      ttsReadIdleTimeout: 30_000,
+      forwardAudioIdleTimeout: 30_000,
     });
 
-    // Override ttsNode to bypass StreamAdapterWrapper/DeferredReadableStream pipeline.
-    // The default pipeline's DeferredReadableStream.pump() has a silent bug: it calls
-    // WritableStream.close() (which doesn't exist — only WritableStreamDefaultWriter.close()
-    // exists), so the transform stream never closes, pumpInput() blocks forever, and
-    // the output produces 0 audio frames. By overriding ttsNode we collect all LLM text
-    // then call synthesize() directly (HTTP POST to Deepgram), bypassing all that.
+    // The node overrides only meter usage; both delegate to the default pipeline.
     class DecipherAgent extends voice.Agent {
-      // Override llmNode to pass null toolCtx. The framework always passes toolCtx={}
-      // when no tools are defined, which serialises to tools:[] in the API request.
-      // Anthropic's compat layer rejects tools:[] ("List should have at least 1 item").
-      // Passing null causes inference/llm.js to set tools=undefined, which is omitted
-      // from the JSON body entirely, and also removes tool_choice from the request.
       override async llmNode(
         chatCtx: llm.ChatContext,
-        _toolCtx: llm.ToolContext,
+        toolCtx: llm.ToolContext,
         modelSettings: voice.ModelSettings
-      ): Promise<NodeReadableStream<llm.ChatChunk | string> | null> {
+      ): Promise<NodeReadableStream<llm.ChatChunk | string | FlushSentinel> | null> {
         // Estimate input tokens from chatCtx items text (4 chars ≈ 1 token)
         const inputChars = chatCtx.items.reduce((sum, item) => {
           const c = (item as unknown as { content?: unknown }).content;
@@ -169,14 +156,14 @@ export default defineAgent({
         }, 0);
         const inputTokensEst = Math.ceil(inputChars / 4);
 
-        const upstream = await super.llmNode(chatCtx, null as unknown as llm.ToolContext, modelSettings);
+        const upstream = await super.llmNode(chatCtx, toolCtx, modelSettings);
         if (!upstream) return upstream;
 
         // Wrap the upstream stream to count output chars and flush after the turn
         let outputChars = 0;
         let usageFromChunk: { inputTokens: number; outputTokens: number } | null = null;
         const reader = upstream.getReader();
-        return new NodeReadableStream<llm.ChatChunk | string>({
+        return new NodeReadableStream<llm.ChatChunk | string | FlushSentinel>({
           async pull(controller) {
             const { done, value } = await reader.read();
             if (done) {
@@ -209,44 +196,30 @@ export default defineAgent({
       }
 
       override async ttsNode(
-        text: NodeReadableStream<string>,
-        _modelSettings: voice.ModelSettings
+        text: NodeReadableStream<string> | AsyncIterable<string>,
+        modelSettings: voice.ModelSettings
       ): Promise<NodeReadableStream<AudioFrame> | null> {
-        const reader = text.getReader();
-        const chunks: string[] = [];
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            if (value) chunks.push(value);
-          }
-        } finally {
-          reader.releaseLock();
-        }
-        const fullText = chunks.join("").trim();
-        console.info(JSON.stringify({ event: "tts_node", chars: fullText.length, preview: fullText.slice(0, 80) }));
-        if (!fullText) return null;
-        if (fullText.length > 0) {
-          accumulatedTtsChars += fullText.length;
-          void flushUsage({ ttsCharsDelta: fullText.length });
-        }
-        const chunkStream = ttsInstance.synthesize(fullText);
-        return new NodeReadableStream<AudioFrame>({
-          async start(controller) {
-            for await (const audio of chunkStream) {
-              controller.enqueue((audio as { frame: AudioFrame }).frame);
-            }
-            controller.close();
-          },
-          cancel() { chunkStream.close(); },
-        });
+        // Count characters as they pass through, then report once the text ends.
+        let chars = 0;
+        let preview = "";
+        const counted = (text instanceof NodeReadableStream ? text : NodeReadableStream.from(text)).pipeThrough(
+          new TransformStream<string, string>({
+            transform(chunk, controller) {
+              chars += chunk.length;
+              if (preview.length < 80) preview = (preview + chunk).slice(0, 80);
+              controller.enqueue(chunk);
+            },
+            flush() {
+              console.info(JSON.stringify({ event: "tts_node", chars, preview: preview.trim() }));
+              if (chars > 0) void flushUsage({ ttsCharsDelta: chars });
+            },
+          })
+        );
+        return super.ttsNode(counted as NodeReadableStream<string>, modelSettings);
       }
     }
 
-    const agent = new DecipherAgent({
-      instructions: systemPrompt,
-      allowInterruptions: false,
-    });
+    const agent = new DecipherAgent({ instructions: systemPrompt });
     let pendingCommitTimer: NodeJS.Timeout | null = null;
     let awaitingManualCommit = false;
     let sawTranscriptThisTurn = false;
@@ -287,6 +260,7 @@ export default defineAgent({
     }
 
     session.on(voice.AgentSessionEventTypes.ConversationItemAdded, (ev) => {
+      if (ev.item.type !== "message") return;
       const role = ev.item.role;
       if (role !== "user" && role !== "assistant") return;
 

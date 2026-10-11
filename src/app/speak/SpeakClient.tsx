@@ -12,6 +12,7 @@ import {
   Track,
   TrackPublication,
 } from "livekit-client";
+import { encodeDataMessage } from "@/lib/livekit/data";
 import type { SpeakScenarioSlug } from "@/lib/speak/scenarios";
 import { SCENARIO_MISSIONS } from "@/lib/speak/scenarios";
 
@@ -458,13 +459,11 @@ export function SpeakClient({ scenarios, recentSessions, initialScenario, initia
       await setMicTrackMuted(nextRoom, true);
       const micPublication = getMicPublication(nextRoom);
       void nextRoom.localParticipant.publishData(
-        new TextEncoder().encode(
-          JSON.stringify({
-            type: "mic_ready",
-            hasMicPublication: true,
-            trackSid: micPublication?.trackSid ?? null,
-          })
-        ),
+        encodeDataMessage({
+          type: "mic_ready",
+          hasMicPublication: true,
+          trackSid: micPublication?.trackSid ?? null,
+        }),
         { reliable: true }
       );
       setMicDebug("Mic track published and live. Hold to Talk marks turn boundaries.");
@@ -523,12 +522,10 @@ export function SpeakClient({ scenarios, recentSessions, initialScenario, initia
       }
       setMicDebug("Listening... speak while holding.");
       await room.localParticipant.publishData(
-        new TextEncoder().encode(
-          JSON.stringify({
-            type: "ptt_press",
-            hasMicPublication: true,
-          })
-        ),
+        encodeDataMessage({
+          type: "ptt_press",
+          hasMicPublication: true,
+        }),
         { reliable: true }
       );
       setPttActive(true);
@@ -546,14 +543,12 @@ export function SpeakClient({ scenarios, recentSessions, initialScenario, initia
       const muted = await setMicTrackMuted(room, true);
       setMicDebug("Turn sent. Waiting for transcript...");
       await room.localParticipant.publishData(
-        new TextEncoder().encode(
-          JSON.stringify({
-            type: "ptt_release",
-            holdMs,
-            hasMicPublication: !!micPublication,
-            micMutedBeforeRelease: muted || micPublication?.isMuted || null,
-          })
-        ),
+        encodeDataMessage({
+          type: "ptt_release",
+          holdMs,
+          hasMicPublication: !!micPublication,
+          micMutedBeforeRelease: muted || micPublication?.isMuted || null,
+        }),
         { reliable: true }
       );
       setPttActive(false);

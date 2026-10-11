@@ -3,8 +3,27 @@
 ## Current State
 
 - Branch: `main`
-- Fly worker: upgraded to @livekit/agents v1.2.4, deployed 2026-04-09
+- Fly worker: @livekit/agents v1.2.4, deployed 2026-04-09
 - Vercel: `https://decipher-two.vercel.app`
+
+## Upgrade to @livekit/agents 1.9.2 (2026-10-11, branch `chore/livekit-agents-1.9`)
+
+All `@livekit/agents*` packages are 1.9.2. `@livekit/rtc-node` is 1.1.0 and is
+now a direct dependency (the worker imports it). `livekit-client` is 2.22.4.
+
+Workaround status:
+
+| 1.2.4 workaround | 1.9.2 status |
+|---|---|
+| `trackPublished` handler that subscribes late audio tracks | Removed. `JobContext.connect(AUDIO_ONLY)` now subscribes tracks published after connect. |
+| `ttsNode` override that buffered all text and called `synthesize()` | Removed. The default streaming TTS path works. `ttsNode` now only counts characters and calls `super.ttsNode`. |
+| `llmNode` passed `null` tool context to avoid `tools: []` | Still needed. Anthropic still returns 400 for `tools: []`. Fixed in `src/agent/anthropic-compat-llm.ts` instead of a cast in `llmNode`. |
+| `scripts/patch-livekit-agents.mjs` (idle timeouts 10s to 30s, writer-close guard) | Removed. Timeouts are now `AgentSession` options (`ttsReadIdleTimeout`, `forwardAudioIdleTimeout`). The writer-close guard only applied when `ttsNode` returned `null`, which the new `ttsNode` never does. |
+
+Session options moved from deprecated flat fields to `turnHandling`
+(`turnDetection: "manual"`, interruptions off, preemptive generation off).
+The PTT data contract (`ptt_press`, `ptt_release`, `mic_ready`, `debug_stage`)
+did not change.
 
 ## What Is Fixed
 
