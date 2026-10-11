@@ -47,7 +47,7 @@ Then add one line to the system prompt: answer only from the report, say so when
 | Piece | Choice |
 |---|---|
 | Media | LiveKit Cloud |
-| Agent framework | `@livekit/agents` 1.2.4 (Node) |
+| Agent framework | `@livekit/agents` 1.9.2 (Node) |
 | STT | Deepgram nova-3 |
 | LLM | Claude via the OpenAI-compatible plugin |
 | TTS | Deepgram Aura-2 |
@@ -58,7 +58,7 @@ Push-to-talk was a choice, not a limit. LiveKit's VAD turn detection works. We u
 
 ## Things that will bite
 
-- `@livekit/agents` 1.2.4 had three bugs we patched in the `DecipherAgent` subclass and in `scripts/patch-livekit-agents.mjs`. See the comments at `src/agent/index.ts` lines 146 to 230. A newer release may not need them. Check before you copy.
+- Anthropic's OpenAI-compatible endpoint rejects `tools: []`, and `@livekit/agents` sends that when an agent has no tools. `src/agent/anthropic-compat-llm.ts` drops the empty list. Copy it if you use Claude through the OpenAI plugin. The other 1.2.4 workarounds are gone since the 1.9.2 upgrade.
 - The worker must be dispatched explicitly. Automatic dispatch by agent name did not fire reliably for us. See `createDispatch` in the start route.
 - Fly machines with autostop go to sleep. The first session after sleep waits for a cold start. Keep one machine warm or accept the delay.
 - Cost per minute is dominated by TTS characters, then LLM tokens, then STT seconds. The worker counts all three and posts them to `/api/internal/usage`. Keep that from day one.

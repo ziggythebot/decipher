@@ -12,6 +12,7 @@ import {
   Track,
   TrackPublication,
 } from "livekit-client";
+import { encodeDataMessage } from "@/lib/livekit/data";
 
 type ActiveSession = {
   id: string;
@@ -250,7 +251,7 @@ export function RoadRageClient() {
       await setMicMuted(nextRoom, true);
       const micPub = getMicPublication(nextRoom);
       void nextRoom.localParticipant.publishData(
-        new TextEncoder().encode(JSON.stringify({ type: "mic_ready", hasMicPublication: true, trackSid: micPub?.trackSid ?? null })),
+        encodeDataMessage({ type: "mic_ready", hasMicPublication: true, trackSid: micPub?.trackSid ?? null }),
         { reliable: true }
       );
       for (const p of nextRoom.remoteParticipants.values()) attachParticipantAudio(p);
@@ -275,7 +276,7 @@ export function RoadRageClient() {
       if (!pub) { setMessage("Mic not ready — reconnect audio."); return; }
       await setMicMuted(room, false);
       await room.localParticipant.publishData(
-        new TextEncoder().encode(JSON.stringify({ type: "ptt_press", hasMicPublication: true })),
+        encodeDataMessage({ type: "ptt_press", hasMicPublication: true }),
         { reliable: true }
       );
       setPttActive(true);
@@ -289,7 +290,7 @@ export function RoadRageClient() {
       const pub = getMicPublication(room);
       const muted = await setMicMuted(room, true);
       await room.localParticipant.publishData(
-        new TextEncoder().encode(JSON.stringify({ type: "ptt_release", holdMs, hasMicPublication: !!pub, micMutedBeforeRelease: muted || pub?.isMuted || null })),
+        encodeDataMessage({ type: "ptt_release", holdMs, hasMicPublication: !!pub, micMutedBeforeRelease: muted || pub?.isMuted || null }),
         { reliable: true }
       );
       setPttActive(false);
